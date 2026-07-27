@@ -1,0 +1,22 @@
+name            = "gvisor-eks"
+region          = "us-east-1"
+cluster_version = "1.32"
+
+gvisor_node_instance_types = ["m6i.large"]
+gvisor_desired_size        = 0
+gvisor_min_size            = 0
+gvisor_max_size            = 4
+
+gvisor_release_channel = "release"
+enable_smoke_test      = true
+
+enable_gpu_node_group   = true
+gpu_node_instance_types = ["g6.xlarge"]
+gpu_desired_size        = 0
+gpu_min_size            = 0
+gpu_max_size            = 1
+gpu_accelerator_label   = "nvidia-l4"
+
+tags = {
+  Environment = "dev"
+}

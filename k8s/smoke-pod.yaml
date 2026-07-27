@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gvisor-smoke
+  namespace: default
+  labels:
+    app: gvisor-smoke
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  containers:
+    - name: busybox
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - dmesg | head -n 20; tail -f /dev/null

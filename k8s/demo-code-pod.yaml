@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gvisor-code-demo
+  namespace: default
+  labels:
+    app: gvisor-code-demo
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  nodeSelector:
+    runtime.gvisor.dev/enabled: "true"
+  containers:
+    - name: python
+      image: python:3.12-alpine
+      command:
+        - python
+        - -c
+        - |
+          import os
+          import platform
+          import sys
+          import time
+
+          print("hello from code running inside a gVisor sandbox")
+          print(f"python={sys.version.split()[0]}")
+          print(f"kernel={platform.release()}")
+          print(f"hostname={platform.node()}")
+          print(f"pid={os.getpid()}")
+          print(f"demo_value={23 * 916}")
+          print("done")
+          time.sleep(5)
+
