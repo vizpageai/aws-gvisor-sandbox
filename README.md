@@ -236,3 +236,54 @@ artifacts/nanogpt-shakespeare/nanogpt_train.log
 artifacts/nanogpt-shakespeare/training_curve.csv
 artifacts/nanogpt-shakespeare/training_curve.svg
 ```
+
+Serve OpenAI `gpt-oss-20b` with vLLM on a single 16GB GPU and expose an OpenAI-compatible API:
+
+```powershell
+$env:PYTHONPATH="src"
+python examples\gpt_oss_20b_vllm_api.py --scale-up
+```
+
+The script deploys `openai/gpt-oss-20b`, which is MXFP4 quantized out of the box, through a vLLM server and prints both addresses:
+
+```text
+Cluster-internal OpenAI-compatible base_url: http://gpt-oss-20b-vllm.default.svc.cluster.local:8000/v1
+Local base_url after port-forward: http://127.0.0.1:8000/v1
+```
+
+Forward the API to this computer:
+
+```powershell
+kubectl port-forward -n default svc/gpt-oss-20b-vllm 8000:8000
+```
+
+Then call it with the OpenAI SDK:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",
+    api_key="EMPTY",
+)
+
+response = client.chat.completions.create(
+    model="openai/gpt-oss-20b",
+    messages=[{"role": "user", "content": "Explain MXFP4 quantization briefly."}],
+)
+
+print(response.choices[0].message.content)
+```
+
+Or run the included client:
+
+```powershell
+$env:GPT_OSS_BASE_URL="http://127.0.0.1:8000/v1"
+python examples\gpt_oss_20b_openai_client.py
+```
+
+When done:
+
+```powershell
+python examples\gpt_oss_20b_vllm_api.py --delete --scale-down
+```
