@@ -27,3 +27,18 @@ output "runtime_class_name" {
   description = "Kubernetes RuntimeClass for gVisor workloads."
   value       = kubernetes_runtime_class_v1.gvisor.metadata[0].name
 }
+
+output "sandbox_service_account_name" {
+  description = "Kubernetes service account used by AWS sandbox sessions."
+  value       = kubernetes_service_account_v1.sandbox.metadata[0].name
+}
+
+output "sandbox_s3_bucket_name" {
+  description = "S3 bucket used for sandbox object storage."
+  value       = try(aws_s3_bucket.sandbox_objects[0].bucket, null)
+}
+
+output "sandbox_block_storage_class" {
+  description = "StorageClass used for EBS-backed sandbox PVCs."
+  value       = var.enable_ebs_csi ? kubernetes_storage_class_v1.gp3[0].metadata[0].name : null
+}

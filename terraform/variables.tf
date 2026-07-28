@@ -105,6 +105,42 @@ variable "nvidia_device_plugin_image" {
   default     = "nvcr.io/nvidia/k8s-device-plugin:v0.17.4"
 }
 
+variable "sandbox_namespace" {
+  description = "Kubernetes namespace for reusable sandbox pods and storage."
+  type        = string
+  default     = "default"
+}
+
+variable "sandbox_service_account_name" {
+  description = "Service account used by reusable AWS sandbox pods."
+  type        = string
+  default     = "gvisor-sandbox"
+}
+
+variable "enable_sandbox_s3" {
+  description = "Create an S3 bucket and IAM permissions for sandbox object storage."
+  type        = bool
+  default     = true
+}
+
+variable "sandbox_s3_bucket_name" {
+  description = "Optional explicit S3 bucket name for sandbox object storage. Defaults to a region/account-scoped name."
+  type        = string
+  default     = null
+}
+
+variable "enable_ebs_csi" {
+  description = "Install the AWS EBS CSI driver add-on and create a gp3 StorageClass for sandbox block storage."
+  type        = bool
+  default     = true
+}
+
+variable "sandbox_block_storage_class" {
+  description = "StorageClass name used for AWS sandbox EBS-backed PVCs."
+  type        = string
+  default     = "gp3"
+}
+
 variable "tags" {
   description = "Additional tags applied to AWS resources."
   type        = map(string)

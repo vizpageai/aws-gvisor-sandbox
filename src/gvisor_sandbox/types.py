@@ -47,6 +47,68 @@ class GPU:
 
 
 @dataclass(frozen=True)
+class S3ObjectStorage:
+    """S3-backed object workspace metadata exposed to sandbox containers.
+
+    This is the AWS equivalent of Azure Blob-backed shared sandbox storage. It
+    is intentionally exposed as object storage metadata rather than a POSIX
+    filesystem mount; use the AWS SDK/CLI or Mountpoint for Amazon S3 CSI if
+    the workload needs file-like access.
+    """
+
+    bucket: str
+    prefix: str = ""
+    region: str | None = None
+
+    @classmethod
+    def from_uri(cls, uri: str, *, region: str | None = None) -> "S3ObjectStorage":
+        if not uri.startswith("s3://"):
+            raise ValueError("S3 URI must start with s3://")
+        path = uri[5:]
+        bucket, _, prefix = path.partition("/")
+        if not bucket:
+            raise ValueError("S3 URI must include a bucket name")
+        return cls(bucket=bucket, prefix=prefix.strip("/"), region=region)
+
+    @property
+    def uri(self) -> str:
+        return f"s3://{self.bucket}/{self.prefix}" if self.prefix else f"s3://{self.bucket}"
+
+
+@dataclass(frozen=True)
+class EBSBlockStorage:
+    """EBS-backed persistent block storage request for a sandbox.
+
+    Kubernetes provisions this through a PersistentVolumeClaim, usually via the
+    AWS EBS CSI driver and a gp3 StorageClass.
+    """
+
+    size_gib: int = 8
+    storage_class_name: str = "gp3"
+    mount_path: str = "/workspace"
+    pvc_name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.size_gib < 1:
+            raise ValueError("EBS block storage size must be at least 1 GiB")
+        if not self.mount_path.startswith("/"):
+            raise ValueError("EBS block storage mount_path must be absolute")
+
+
+@dataclass(frozen=True)
+class SandboxStatus:
+    name: str
+    namespace: str
+    phase: str
+    ready: bool
+    node_name: str | None
+    runtime_class_name: str | None
+    image: str
+    s3: S3ObjectStorage | None = None
+    ebs: EBSBlockStorage | None = None
+
+
+@dataclass(frozen=True)
 class RunResult:
     name: str
     namespace: str

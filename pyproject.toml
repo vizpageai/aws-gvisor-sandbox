@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gvisor-sandbox"
-version = "0.1.0"
+version = "0.2.0"
 description = "Run Python code in Kubernetes pods backed by the gVisor RuntimeClass."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,4 +17,3 @@ gvisor-sandbox = "gvisor_sandbox.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

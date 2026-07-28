@@ -9,6 +9,10 @@ Terraform project for deploying an Amazon EKS cluster with a dedicated gVisor no
 - Managed node group for gVisor workloads.
 - `node.k8s.io/v1` `RuntimeClass` with `handler: runsc`.
 - Optional smoke-test pod that runs with `runtimeClassName: gvisor`.
+- Optional AWS sandbox storage plane:
+  - S3 bucket for object-backed workspace state.
+  - IAM role and Kubernetes service account for sandbox S3 access.
+  - AWS EBS CSI driver and `gp3` StorageClass for per-sandbox block storage.
 
 ## Requirements
 
@@ -63,6 +67,8 @@ enable_smoke_test          = true
 ## Security Notes
 
 gVisor adds a user-space kernel boundary for selected pods, but it is not a complete replacement for normal Kubernetes and AWS controls. Keep IAM least-privileged, use private subnets for nodes, apply network policies where appropriate, and only assign `runtimeClassName: gvisor` to workloads that have been compatibility-tested.
+
+The reusable AWS sandbox API is an EKS/gVisor approximation of managed agent sandboxes. It preserves object and disk state through S3 and EBS-backed PVCs, but it does not preserve process memory or provide VM snapshot resume. Stop/resume deletes and recreates the pod while retaining externalized state.
 
 ## Destroy
 
@@ -121,6 +127,66 @@ The demo installs NumPy inside the sandbox pod, trains a small logistic
 regression model on synthetic data, runs batch inference, and prints training
 loss, accuracy, and the gVisor node that executed the workload. It does not
 require GPU nodes.
+
+### Reusable AWS Sandbox Sessions
+
+For agent-style workflows that need a named environment, persistent workspace disk, and shared object storage, use `AwsSandbox`:
+
+```python
+from gvisor_sandbox import AwsSandbox, EBSBlockStorage, S3ObjectStorage
+
+sandbox = AwsSandbox(
+    name="agent-dev-sandbox",
+    image="python:3.12-slim",
+    s3=S3ObjectStorage.from_uri("s3://my-sandbox-bucket/agent-dev-sandbox", region="us-east-1"),
+    ebs=EBSBlockStorage(size_gib=8, storage_class_name="gp3", mount_path="/workspace"),
+)
+
+sandbox.start(timeout_seconds=600)
+
+result = sandbox.run_python("""
+from pathlib import Path
+import os
+
+workspace = Path(os.environ["SANDBOX_WORKSPACE"])
+workspace.mkdir(parents=True, exist_ok=True)
+(workspace / "hello.txt").write_text("state persisted on EBS")
+
+print("workspace:", workspace)
+print("s3 uri:", os.environ["SANDBOX_S3_URI"])
+""")
+
+print(result.logs)
+
+sandbox.stop()   # stops compute; keeps S3 objects and the EBS PVC
+sandbox.start()  # resumes with the same PVC mounted again
+print(sandbox.exec(["cat", "/workspace/hello.txt"]))
+```
+
+Run the included example:
+
+```powershell
+$env:PYTHONPATH="src"
+$env:SANDBOX_S3_BUCKET="$(terraform -chdir=terraform output -raw sandbox_s3_bucket_name)"
+python examples\aws_sandbox_session.py
+```
+
+Delete the sandbox pod and PVC after the example:
+
+```powershell
+$env:SANDBOX_DELETE="1"
+python examples\aws_sandbox_session.py
+```
+
+Mapping from the Azure sandbox concepts to this AWS implementation:
+
+| Managed sandbox concept | AWS implementation in this repo |
+| --- | --- |
+| Secure code sandbox | EKS pod with `runtimeClassName: gvisor` / `runsc` |
+| Blob/object workspace | S3 bucket and IRSA-backed service account permissions |
+| Block storage | EBS CSI-provisioned `gp3` PersistentVolumeClaim |
+| Stop/resume state | Delete/recreate pod while retaining S3 objects and PVC data |
+| GPU jobs | Normal runtime GPU pods, not gVisor GPU passthrough |
 
 ### GPU Requests
 
