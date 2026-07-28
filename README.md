@@ -221,3 +221,18 @@ aws eks update-nodegroup-config `
   --nodegroup-name gvisor-eks-gpu-test `
   --scaling-config minSize=0,maxSize=1,desiredSize=1
 ```
+
+Run a small nanoGPT Shakespeare training job on a single T4/L4 GPU and save the local training curve:
+
+```powershell
+$env:PYTHONPATH="src"
+python examples\nanogpt_shakespeare_gpu.py --scale-up --scale-down
+```
+
+The example clones `karpathy/nanoGPT` inside the GPU pod, prepares `data/shakespeare_char`, runs a T4/L4-sized training configuration, and writes local artifacts:
+
+```text
+artifacts/nanogpt-shakespeare/nanogpt_train.log
+artifacts/nanogpt-shakespeare/training_curve.csv
+artifacts/nanogpt-shakespeare/training_curve.svg
+```

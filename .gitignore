@@ -15,3 +15,5 @@ terraform/crash.log
 terraform/crash.*.log
 terraform/.terraform.lock.hcl
 terraform/terraform.tfvars
+
+artifacts/
