@@ -150,7 +150,10 @@ def resources_yaml(args: argparse.Namespace) -> str:
           labels:
             app: {APP_LABEL}
         spec:
+          progressDeadlineSeconds: {args.timeout}
           replicas: 1
+          strategy:
+            type: Recreate
           selector:
             matchLabels:
               app: {APP_LABEL}
@@ -181,19 +184,41 @@ def resources_yaml(args: argparse.Namespace) -> str:
                 args:
                 - |
                   set -euxo pipefail
-                  if ! command -v vllm >/dev/null 2>&1; then
-                    python -m pip install --upgrade pip uv
-                    uv pip install --system --pre vllm=={args.vllm_version} \\
+                  if ! command -v python >/dev/null 2>&1; then
+                    apt-get update
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-dev python3-pip python3-venv python-is-python3 ca-certificates
+                    rm -rf /var/lib/apt/lists/*
+                  fi
+                  if ! command -v gcc >/dev/null 2>&1; then
+                    apt-get update
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential
+                    rm -rf /var/lib/apt/lists/*
+                  fi
+                  if [ ! -f /usr/include/python3.12/Python.h ]; then
+                    apt-get update
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-dev
+                    rm -rf /var/lib/apt/lists/*
+                  fi
+                  if ! command -v ninja >/dev/null 2>&1; then
+                    apt-get update
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ninja-build
+                    rm -rf /var/lib/apt/lists/*
+                  fi
+                  if [ ! -x /models/venv/bin/vllm ]; then
+                    python -m venv /models/venv
+                    /models/venv/bin/python -m pip install --upgrade pip uv
+                    /models/venv/bin/uv pip install --python /models/venv/bin/python --pre vllm=={args.vllm_version} \\
                       --extra-index-url https://wheels.vllm.ai/gpt-oss/ \\
                       --extra-index-url https://download.pytorch.org/whl/nightly/cu128 \\
                       --index-strategy unsafe-best-match
                   fi
-                  exec vllm serve {MODEL_NAME} \\
+                  exec /models/venv/bin/vllm serve {MODEL_NAME} \\
                     --host 0.0.0.0 \\
                     --port 8000 \\
                     --served-model-name {MODEL_NAME} \\
                     --max-model-len {args.max_model_len} \\
                     --gpu-memory-utilization {args.gpu_memory_utilization} \\
+                    --enforce-eager \\
                     --trust-remote-code
                 resources:
                   limits:
@@ -210,12 +235,12 @@ def resources_yaml(args: argparse.Namespace) -> str:
                   initialDelaySeconds: 30
                   periodSeconds: 10
                   timeoutSeconds: 3
-                  failureThreshold: 60
+                  failureThreshold: 720
                 livenessProbe:
                   httpGet:
                     path: /health
                     port: 8000
-                  initialDelaySeconds: 120
+                  initialDelaySeconds: 3600
                   periodSeconds: 30
                   timeoutSeconds: 3
                   failureThreshold: 10
@@ -246,7 +271,11 @@ def resources_yaml(args: argparse.Namespace) -> str:
 def write_client_example(path: Path, base_url: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f'''from openai import OpenAI
+        f'''import sys
+
+from openai import OpenAI
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 client = OpenAI(
     base_url="{base_url}",
@@ -259,8 +288,9 @@ response = client.chat.completions.create(
         {{"role": "system", "content": "You are a concise assistant."}},
         {{"role": "user", "content": "Explain MXFP4 quantization in two sentences."}},
     ],
+    reasoning_effort="low",
     temperature=0.2,
-    max_tokens=200,
+    max_tokens=600,
 )
 
 print(response.choices[0].message.content)
@@ -278,8 +308,8 @@ def main() -> None:
     parser.add_argument("--selector", default="accelerator=nvidia")
     parser.add_argument("--storage-class", default="gp2")
     parser.add_argument("--cache-size", default="80Gi")
-    parser.add_argument("--image", default="nvidia/cuda:12.8.1-devel-ubuntu22.04")
-    parser.add_argument("--vllm-version", default="0.10.1+gptoss")
+    parser.add_argument("--image", default="nvidia/cuda:13.0.2-devel-ubuntu24.04")
+    parser.add_argument("--vllm-version", default="0.26.0")
     parser.add_argument("--attention-backend", default="TRITON_ATTN_VLLM_V1")
     parser.add_argument("--max-model-len", type=int, default=4096)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
