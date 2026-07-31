@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gvisor-sandbox"
-version = "0.2.0"
-description = "Run Python code in Kubernetes pods backed by the gVisor RuntimeClass."
+version = "0.3.0"
+description = "AWS EKS platform for reusable CPU/GPU agent sandboxes and jobs with S3/EBS storage."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

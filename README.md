@@ -1,6 +1,6 @@
-# gVisor on AWS EKS
+# AWS Agent Sandbox Platform on EKS
 
-Terraform project for deploying an Amazon EKS cluster with a dedicated gVisor node group. The node group uses the EKS optimized Amazon Linux 2 AMI, installs `runsc`, registers the `runsc` containerd runtime handler, and exposes it through a Kubernetes `RuntimeClass` named `gvisor`.
+An AWS-native platform for reusable AI-agent sandboxes and short or long-running jobs. CPU sandboxes use gVisor isolation; GPU workloads automatically use native NVIDIA containers. S3 supplies shared object storage and EBS supplies persistent mounted workspaces.
 
 ## What This Creates
 
@@ -84,6 +84,145 @@ Install locally:
 
 ```bash
 pip install -e .
+```
+
+## Unified Sandbox Platform
+
+`SandboxPlatform` is the main API. It provides two workload shapes:
+
+| Workload | Kubernetes controller | Best for |
+| --- | --- | --- |
+| Reusable sandbox | Deployment scaled between 0 and 1 | Interactive agents, repeated commands, persistent development sessions |
+| Job | Job with optional automatic cleanup | Short tasks, training, batch inference, detached long-running work |
+
+Runtime selection is automatic:
+
+- CPU plus `runtime="auto"` uses `runtimeClassName: gvisor` and the gVisor node pool.
+- GPU plus `runtime="auto"` uses the native runtime and requests `nvidia.com/gpu`.
+- Explicit `runtime="gvisor"` with a GPU is rejected because this deployment does not provide gVisor GPU passthrough.
+
+Create and use a persistent agent sandbox:
+
+```python
+from gvisor_sandbox import (
+    EBSBlockStorage,
+    S3ObjectStorage,
+    SandboxPlatform,
+    SandboxSpec,
+)
+
+platform = SandboxPlatform(namespace="default")
+sandbox = platform.create(
+    "research-agent",
+    SandboxSpec(
+        image="python:3.12-slim",
+        s3=S3ObjectStorage.from_uri(
+            "s3://my-sandbox-bucket/research-agent",
+            region="us-east-1",
+        ),
+        ebs=EBSBlockStorage(size_gib=20, mount_path="/workspace"),
+    ),
+    timeout_seconds=900,
+)
+
+result = sandbox.run_python("""
+from pathlib import Path
+import os
+
+workspace = Path(os.environ["SANDBOX_WORKSPACE"])
+(workspace / "result.txt").write_text("persistent result")
+print(os.environ["SANDBOX_S3_URI"])
+""")
+print(result.output, result.exit_code)
+
+sandbox.put_text("/workspace/prompt.txt", "Analyze this dataset")
+print(sandbox.get_text("/workspace/result.txt"))
+sandbox.upload_file("local-input.json", "/workspace/input.json")
+sandbox.download_file("/workspace/result.txt", "artifacts/result.txt")
+sandbox.stop()                 # releases compute; keeps configuration and storage
+sandbox.start()                # resumes with the same EBS workspace
+sandbox.delete(delete_storage=True)
+```
+
+Submit a synchronous GPU job:
+
+```python
+from gvisor_sandbox import ComputeResources, GPU, SandboxPlatform, SandboxSpec
+
+platform = SandboxPlatform()
+result = platform.submit_python(
+    """
+import torch
+print(torch.cuda.get_device_name(0))
+print((torch.randn(1024, 1024, device="cuda") ** 2).mean().item())
+""",
+    name="gpu-check",
+    spec=SandboxSpec(
+        image="pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime",
+        gpu=GPU.from_type("nvidia-l4"),
+        resources=ComputeResources(cpu="2", memory="8Gi"),
+    ),
+    timeout_seconds=1800,
+    ttl_seconds_after_finished=3600,
+)
+print(result.logs)
+```
+
+For a long-running job, pass `wait=False`. The returned handle can be reconnected from another process:
+
+```python
+job = platform.submit_python(code, name="long-training", spec=spec, wait=False)
+print(job.status())
+
+# Later, including from another Python process:
+job = platform.job("long-training")
+print(job.logs())
+result = job.wait(timeout_seconds=24 * 60 * 60)
+```
+
+### CLI
+
+Create, connect, stop, resume, and delete a CPU sandbox:
+
+```powershell
+gvisor-sandbox create agent-dev --ebs-size 20 --s3-uri s3://my-sandbox-bucket/agent-dev
+gvisor-sandbox exec agent-dev -- python --version
+gvisor-sandbox python agent-dev examples/run_python.py
+gvisor-sandbox stop agent-dev
+gvisor-sandbox start agent-dev
+gvisor-sandbox delete agent-dev --storage
+```
+
+Create a reusable GPU sandbox. The explicit selector is only needed when the cluster's accelerator label differs from the GPU type:
+
+```powershell
+gvisor-sandbox create gpu-agent `
+  --gpu-type nvidia-l4 `
+  --node-selector accelerator=nvidia-l4 `
+  --image pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime `
+  --cpu 2 --memory 8Gi --ebs-size 40
+```
+
+Submit a detached GPU job and reconnect later:
+
+```powershell
+gvisor-sandbox job-run train.py --name training-1 --gpu-type nvidia-l4 --detach
+gvisor-sandbox job-status training-1
+gvisor-sandbox job-logs training-1
+gvisor-sandbox job-wait training-1 --timeout 86400
+gvisor-sandbox job-delete training-1
+```
+
+Set `--ttl SECONDS` on sandboxes or jobs and run `gvisor-sandbox gc` periodically to remove expired resources. Kubernetes-native `--ttl-after-finished` is also available for Jobs.
+
+S3 is exposed as `SANDBOX_S3_URI`, `SANDBOX_S3_BUCKET`, and `SANDBOX_S3_PREFIX`; access it with boto3 or the AWS CLI through the IRSA service account. EBS is a normal filesystem mounted at `/workspace` by default. `upload_file` and `download_file` are convenient for small control files; use S3 for large datasets and artifacts. The Terraform configuration creates the `gvisor-sandbox` service account, S3 IAM permissions, EBS CSI add-on, and `gp3` StorageClass.
+
+Runnable examples:
+
+```powershell
+$env:PYTHONPATH="src"
+python examples\sandbox_platform_quickstart.py
+python examples\sandbox_platform_gpu_job.py
 ```
 
 Run code from Python:

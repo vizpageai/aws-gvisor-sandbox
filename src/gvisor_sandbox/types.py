@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 class UnsupportedConfiguration(ValueError):
@@ -9,6 +10,14 @@ class UnsupportedConfiguration(ValueError):
 
 class SchedulingError(TimeoutError):
     """Raised when Kubernetes cannot schedule a sandbox pod."""
+
+
+class RuntimeMode(str, Enum):
+    """Container runtime selection for a sandbox workload."""
+
+    AUTO = "auto"
+    GVISOR = "gvisor"
+    NATIVE = "native"
 
 
 @dataclass(frozen=True)
@@ -39,7 +48,12 @@ class GPU:
         if "/" in normalized:
             return cls(type=normalized, count=count, resource_name=normalized)
         if normalized.startswith("nvidia"):
-            return cls(type=normalized, count=count, resource_name="nvidia.com/gpu")
+            return cls(
+                type=normalized,
+                count=count,
+                resource_name="nvidia.com/gpu",
+                node_selector={"accelerator": normalized},
+            )
         raise ValueError(
             "Unknown GPU type. Use a Kubernetes extended resource such as "
             "'nvidia.com/gpu' or an NVIDIA type such as 'nvidia-l4'."
@@ -96,6 +110,60 @@ class EBSBlockStorage:
 
 
 @dataclass(frozen=True)
+class ComputeResources:
+    """CPU, memory, and ephemeral disk requests and limits."""
+
+    cpu: str = "500m"
+    memory: str = "1Gi"
+    ephemeral_storage: str | None = None
+    cpu_limit: str | None = None
+    memory_limit: str | None = None
+
+
+@dataclass(frozen=True)
+class SandboxSpec:
+    """Portable definition for a reusable sandbox or Kubernetes job."""
+
+    image: str = "python:3.12-slim"
+    runtime: RuntimeMode | str = RuntimeMode.AUTO
+    gpu: GPU | None = None
+    resources: ComputeResources = field(default_factory=ComputeResources)
+    node_selector: dict[str, str] = field(default_factory=dict)
+    service_account_name: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
+    s3: S3ObjectStorage | None = None
+    ebs: EBSBlockStorage | None = None
+    working_dir: str | None = None
+    ttl_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        runtime = RuntimeMode(self.runtime)
+        object.__setattr__(self, "runtime", runtime)
+        if runtime == RuntimeMode.GVISOR and self.gpu is not None:
+            raise UnsupportedConfiguration(
+                "This platform does not provide gVisor GPU passthrough. "
+                "Use runtime='auto' or runtime='native' for GPU workloads."
+            )
+        if self.working_dir is not None and not self.working_dir.startswith("/"):
+            raise ValueError("working_dir must be an absolute container path")
+        if self.ttl_seconds is not None and self.ttl_seconds < 1:
+            raise ValueError("ttl_seconds must be at least 1")
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """Result from a command executed in a reusable sandbox."""
+
+    output: str
+    exit_code: int
+
+    @property
+    def ok(self) -> bool:
+        return self.exit_code == 0
+
+
+@dataclass(frozen=True)
 class SandboxStatus:
     name: str
     namespace: str
@@ -106,6 +174,8 @@ class SandboxStatus:
     image: str
     s3: S3ObjectStorage | None = None
     ebs: EBSBlockStorage | None = None
+    gpu: GPU | None = None
+    stopped: bool = False
 
 
 @dataclass(frozen=True)
