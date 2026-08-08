@@ -1,6 +1,5 @@
 from gvisor_sandbox import GvisorSandbox
 
-
 result = GvisorSandbox().run_python(
     """
 import platform

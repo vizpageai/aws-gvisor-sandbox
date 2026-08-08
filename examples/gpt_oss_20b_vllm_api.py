@@ -7,7 +7,6 @@ import textwrap
 import time
 from pathlib import Path
 
-
 APP_LABEL = "gpt-oss-20b-vllm"
 MODEL_NAME = "openai/gpt-oss-20b"
 
@@ -375,4 +374,4 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         print(str(exc), file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import base64
 import ast
+import base64
+import builtins
 import json
 import re
 import shlex
@@ -15,10 +16,10 @@ from pathlib import Path
 from kubernetes.stream import stream
 
 from .types import (
+    GPU,
     CommandResult,
     ComputeResources,
     EBSBlockStorage,
-    GPU,
     RunResult,
     RuntimeMode,
     S3ObjectStorage,
@@ -26,7 +27,6 @@ from .types import (
     SandboxStatus,
     SchedulingError,
 )
-
 
 MANAGED_LABEL = "sandbox.platform/managed"
 NAME_LABEL = "sandbox.platform/name"
@@ -70,7 +70,7 @@ class SandboxPlatform:
         start: bool = True,
         wait: bool = True,
         timeout_seconds: int = 600,
-    ) -> "SandboxHandle":
+    ) -> SandboxHandle:
         """Create a reusable sandbox and optionally wait for it to be ready."""
 
         spec = spec or SandboxSpec()
@@ -93,7 +93,7 @@ class SandboxPlatform:
             self._wait_for_sandbox(name, timeout_seconds)
         return handle
 
-    def sandbox(self, name: str) -> "SandboxHandle":
+    def sandbox(self, name: str) -> SandboxHandle:
         """Connect to an existing named sandbox without changing it."""
 
         self._apps_api().read_namespaced_deployment(self._validate_name(name), self.namespace)
@@ -174,7 +174,7 @@ class SandboxPlatform:
         wait: bool = True,
         timeout_seconds: int = 3600,
         ttl_seconds_after_finished: int | None = None,
-    ) -> "JobHandle | RunResult":
+    ) -> JobHandle | RunResult:
         encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
         command = [
             "python",
@@ -199,13 +199,19 @@ class SandboxPlatform:
         wait: bool = True,
         timeout_seconds: int = 3600,
         ttl_seconds_after_finished: int | None = None,
-    ) -> "JobHandle | RunResult":
+    ) -> JobHandle | RunResult:
         spec = spec or SandboxSpec()
         name = self._validate_name(name or f"sandbox-job-{uuid.uuid4().hex[:10]}")
         self._validate_service_account(spec)
         if spec.ebs is not None:
             self._ensure_pvc(name, spec.ebs)
-        job = self._job(name, spec, list(command), ttl_seconds_after_finished)
+        job = self._job(
+            name,
+            spec,
+            list(command),
+            ttl_seconds_after_finished,
+            active_deadline_seconds=timeout_seconds,
+        )
         try:
             self._batch_api().create_namespaced_job(self.namespace, job)
         except Exception as exc:
@@ -215,22 +221,22 @@ class SandboxPlatform:
         handle = JobHandle(self, name)
         return handle.wait(timeout_seconds=timeout_seconds) if wait else handle
 
-    def job(self, name: str) -> "JobHandle":
+    def job(self, name: str) -> JobHandle:
         self._batch_api().read_namespaced_job(self._validate_name(name), self.namespace)
         return JobHandle(self, name)
 
-    def list_jobs(self) -> list[str]:
+    def list_jobs(self) -> builtins.list[str]:
         jobs = self._batch_api().list_namespaced_job(
             self.namespace,
             label_selector=f"{MANAGED_LABEL}=true,{KIND_LABEL}=job",
         )
         return [item.metadata.name for item in jobs.items]
 
-    def cleanup_expired(self, *, delete_storage: bool = False) -> list[str]:
+    def cleanup_expired(self, *, delete_storage: bool = False) -> builtins.list[str]:
         """Delete platform resources whose configured wall-clock TTL elapsed."""
 
         now = datetime.now(timezone.utc)
-        removed: list[str] = []
+        removed: builtins.list[str] = []
         deployments = self._apps_api().list_namespaced_deployment(
             self.namespace, label_selector=f"{MANAGED_LABEL}=true,{KIND_LABEL}=sandbox"
         )
@@ -269,7 +275,15 @@ class SandboxPlatform:
             ),
         )
 
-    def _job(self, name: str, spec: SandboxSpec, command: list[str], ttl_seconds_after_finished: int | None):
+    def _job(
+        self,
+        name: str,
+        spec: SandboxSpec,
+        command: builtins.list[str],
+        ttl_seconds_after_finished: int | None,
+        *,
+        active_deadline_seconds: int,
+    ):
         from kubernetes import client
 
         labels = self._labels(name, "job", spec.labels)
@@ -279,6 +293,7 @@ class SandboxPlatform:
             kind="Job",
             metadata=client.V1ObjectMeta(name=name, namespace=self.namespace, labels=labels, annotations=annotations),
             spec=client.V1JobSpec(
+                active_deadline_seconds=active_deadline_seconds,
                 backoff_limit=0,
                 ttl_seconds_after_finished=ttl_seconds_after_finished,
                 template=client.V1PodTemplateSpec(
@@ -293,7 +308,7 @@ class SandboxPlatform:
         name: str,
         spec: SandboxSpec,
         *,
-        command: list[str] | None = None,
+        command: builtins.list[str] | None = None,
         restart_policy: str = "Never",
     ):
         from kubernetes import client
@@ -350,6 +365,8 @@ class SandboxPlatform:
             ),
         )
         return client.V1PodSpec(
+            automount_service_account_token=False,
+            enable_service_links=False,
             restart_policy=restart_policy,
             runtime_class_name=self._runtime_class(spec),
             node_selector=self._node_selector(spec) or None,
@@ -357,6 +374,7 @@ class SandboxPlatform:
             containers=[container],
             volumes=volumes or None,
             security_context=client.V1PodSecurityContext(seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault")),
+            termination_grace_period_seconds=10,
         )
 
     def _ensure_pvc(self, name: str, storage: EBSBlockStorage) -> None:
@@ -482,7 +500,7 @@ class SandboxPlatform:
     @staticmethod
     def _spec_payload(spec: SandboxSpec) -> dict:
         payload = asdict(spec)
-        payload["runtime"] = spec.runtime.value
+        payload["runtime"] = RuntimeMode(spec.runtime).value
         return payload
 
     @staticmethod

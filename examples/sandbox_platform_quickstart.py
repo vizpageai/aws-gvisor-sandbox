@@ -4,7 +4,6 @@ import os
 
 from gvisor_sandbox import EBSBlockStorage, S3ObjectStorage, SandboxPlatform, SandboxSpec
 
-
 platform = SandboxPlatform(namespace=os.getenv("SANDBOX_NAMESPACE", "default"))
 name = os.getenv("SANDBOX_NAME", "agent-quickstart")
 s3_uri = os.getenv("SANDBOX_S3_URI")

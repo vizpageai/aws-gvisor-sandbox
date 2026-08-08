@@ -1,428 +1,136 @@
-# AWS Agent Sandbox Platform on EKS
+# gVisor Sandbox on AWS EKS
 
-An AWS-native platform for reusable AI-agent sandboxes and short or long-running jobs. CPU sandboxes use gVisor isolation; GPU workloads automatically use native NVIDIA containers. S3 supplies shared object storage and EBS supplies persistent mounted workspaces.
+Run reusable AI-agent sandboxes and batch jobs on Amazon EKS. CPU workloads use
+gVisor (`runsc`) for an additional userspace-kernel isolation boundary. GPU
+workloads run on autoscaled Ubuntu NVIDIA nodes using the native container
+runtime.
 
-## What This Creates
+> [!IMPORTANT]
+> This release targets a single trusted team in one AWS account. GPU workloads
+> do **not** run inside gVisor and must be trusted. Read the
+> [security policy](SECURITY.md) before deployment.
 
-- VPC with public and private subnets across three Availability Zones.
-- EKS control plane.
-- Managed node group for gVisor workloads.
-- `node.k8s.io/v1` `RuntimeClass` with `handler: runsc`.
-- Optional smoke-test pod that runs with `runtimeClassName: gvisor`.
-- Optional AWS sandbox storage plane:
-  - S3 bucket for object-backed workspace state.
-  - IAM role and Kubernetes service account for sandbox S3 access.
-  - AWS EBS CSI driver and `gp3` StorageClass for per-sandbox block storage.
+## Highlights
 
-## Requirements
+- Kubernetes 1.36 on Canonical Ubuntu 24.04 LTS worker nodes.
+- CPU sandboxes isolated with a pinned, checksum-verified gVisor release.
+- NVIDIA L4 GPU workloads with GPU Operator and scale-from-zero.
+- Reusable sandboxes, synchronous jobs, and detached jobs from one Python API
+  and CLI.
+- Optional persistent EBS workspaces and IRSA-authorized S3 object storage.
+- Restricted EKS endpoint, private workers, encrypted storage, control-plane
+  and VPC flow logs, network policy, seccomp, and restricted pod privileges.
+- Terraform lockfile, automated acceptance tests, CI, Dependabot, and PyPI
+  Trusted Publishing workflow.
 
-- Terraform 1.6 or newer.
-- AWS credentials with permissions to create VPC, IAM, EC2, and EKS resources.
-- `kubectl` and AWS CLI for post-deploy inspection.
+## Architecture
 
-The default Kubernetes version is `1.32` because this project intentionally uses the EKS optimized Amazon Linux 2 AMI family for its `/etc/eks/bootstrap.sh` workflow. If you move to Kubernetes `1.33` or newer, review AWS AMI availability and migrate the bootstrap template to AL2023 `nodeadm`.
-
-## Deploy
-
-```bash
-cd terraform
-terraform init
-terraform apply
+```mermaid
+flowchart LR
+    U[CLI or Python SDK] --> E[EKS API]
+    E --> C[CPU sandbox or job]
+    E --> G[GPU sandbox or job]
+    C --> R[gVisor runsc\nUbuntu CPU node]
+    G --> N[Native NVIDIA runtime\nUbuntu GPU node]
+    A[Cluster Autoscaler] --> N
+    C --> S[(S3 objects)]
+    C --> B[(EBS workspace)]
+    G --> S
+    G --> B
 ```
 
-After Terraform finishes, configure `kubectl`:
+The CPU pool keeps one node online for system services. The GPU pool starts at
+zero and scales up when a pod requests `nvidia.com/gpu` with the configured
+accelerator label.
 
-```bash
-aws eks update-kubeconfig \
-  --region "$(terraform -chdir=terraform output -raw region)" \
-  --name "$(terraform -chdir=terraform output -raw cluster_name)"
-```
+## Quick start
 
-Verify the runtime class and test pod:
-
-```bash
-kubectl get runtimeclass
-kubectl get pod gvisor-smoke -o wide
-kubectl logs gvisor-smoke
-```
-
-The smoke pod runs `dmesg`; a successful gVisor run includes startup lines from gVisor.
-
-## Configuration
-
-Create `terraform/terraform.tfvars` to override defaults:
-
-```hcl
-name           = "gvisor-eks"
-region         = "us-east-1"
-cluster_version = "1.32"
-
-gvisor_node_instance_types = ["m6i.large"]
-gvisor_desired_size        = 2
-gvisor_min_size            = 1
-gvisor_max_size            = 4
-enable_smoke_test          = true
-```
-
-## Security Notes
-
-gVisor adds a user-space kernel boundary for selected pods, but it is not a complete replacement for normal Kubernetes and AWS controls. Keep IAM least-privileged, use private subnets for nodes, apply network policies where appropriate, and only assign `runtimeClassName: gvisor` to workloads that have been compatibility-tested.
-
-The reusable AWS sandbox API is an EKS/gVisor approximation of managed agent sandboxes. It preserves object and disk state through S3 and EBS-backed PVCs, but it does not preserve process memory or provide VM snapshot resume. Stop/resume deletes and recreates the pod while retaining externalized state.
-
-## Destroy
-
-```bash
-terraform -chdir=terraform destroy
-```
-
-## Python Package
-
-This repository also includes an installable Python package for launching code directly into Kubernetes pods that use the deployed gVisor RuntimeClass.
-
-Install locally:
-
-```bash
-pip install -e .
-```
-
-## Unified Sandbox Platform
-
-`SandboxPlatform` is the main API. It provides two workload shapes:
-
-| Workload | Kubernetes controller | Best for |
-| --- | --- | --- |
-| Reusable sandbox | Deployment scaled between 0 and 1 | Interactive agents, repeated commands, persistent development sessions |
-| Job | Job with optional automatic cleanup | Short tasks, training, batch inference, detached long-running work |
-
-Runtime selection is automatic:
-
-- CPU plus `runtime="auto"` uses `runtimeClassName: gvisor` and the gVisor node pool.
-- GPU plus `runtime="auto"` uses the native runtime and requests `nvidia.com/gpu`.
-- Explicit `runtime="gvisor"` with a GPU is rejected because this deployment does not provide gVisor GPU passthrough.
-
-Create and use a persistent agent sandbox:
-
-```python
-from gvisor_sandbox import (
-    EBSBlockStorage,
-    S3ObjectStorage,
-    SandboxPlatform,
-    SandboxSpec,
-)
-
-platform = SandboxPlatform(namespace="default")
-sandbox = platform.create(
-    "research-agent",
-    SandboxSpec(
-        image="python:3.12-slim",
-        s3=S3ObjectStorage.from_uri(
-            "s3://my-sandbox-bucket/research-agent",
-            region="us-east-1",
-        ),
-        ebs=EBSBlockStorage(size_gib=20, mount_path="/workspace"),
-    ),
-    timeout_seconds=900,
-)
-
-result = sandbox.run_python("""
-from pathlib import Path
-import os
-
-workspace = Path(os.environ["SANDBOX_WORKSPACE"])
-(workspace / "result.txt").write_text("persistent result")
-print(os.environ["SANDBOX_S3_URI"])
-""")
-print(result.output, result.exit_code)
-
-sandbox.put_text("/workspace/prompt.txt", "Analyze this dataset")
-print(sandbox.get_text("/workspace/result.txt"))
-sandbox.upload_file("local-input.json", "/workspace/input.json")
-sandbox.download_file("/workspace/result.txt", "artifacts/result.txt")
-sandbox.stop()                 # releases compute; keeps configuration and storage
-sandbox.start()                # resumes with the same EBS workspace
-sandbox.delete(delete_storage=True)
-```
-
-Submit a synchronous GPU job:
-
-```python
-from gvisor_sandbox import ComputeResources, GPU, SandboxPlatform, SandboxSpec
-
-platform = SandboxPlatform()
-result = platform.submit_python(
-    """
-import torch
-print(torch.cuda.get_device_name(0))
-print((torch.randn(1024, 1024, device="cuda") ** 2).mean().item())
-""",
-    name="gpu-check",
-    spec=SandboxSpec(
-        image="pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime",
-        gpu=GPU.from_type("nvidia-l4"),
-        resources=ComputeResources(cpu="2", memory="8Gi"),
-    ),
-    timeout_seconds=1800,
-    ttl_seconds_after_finished=3600,
-)
-print(result.logs)
-```
-
-For a long-running job, pass `wait=False`. The returned handle can be reconnected from another process:
-
-```python
-job = platform.submit_python(code, name="long-training", spec=spec, wait=False)
-print(job.status())
-
-# Later, including from another Python process:
-job = platform.job("long-training")
-print(job.logs())
-result = job.wait(timeout_seconds=24 * 60 * 60)
-```
-
-### CLI
-
-Create, connect, stop, resume, and delete a CPU sandbox:
+Prerequisites: AWS CLI v2, Terraform, kubectl, Python 3.10+, an AWS role allowed
+to create EKS/VPC/IAM/EC2 resources, and regional `g6.xlarge` quota.
 
 ```powershell
-gvisor-sandbox create agent-dev --ebs-size 20 --s3-uri s3://my-sandbox-bucket/agent-dev
-gvisor-sandbox exec agent-dev -- python --version
-gvisor-sandbox python agent-dev examples/run_python.py
-gvisor-sandbox stop agent-dev
-gvisor-sandbox start agent-dev
-gvisor-sandbox delete agent-dev --storage
+aws login
+.\scripts\deploy.ps1
 ```
 
-Create a reusable GPU sandbox. The explicit selector is only needed when the cluster's accelerator label differs from the GPU type:
+For a non-interactive Terraform approval:
+
+```powershell
+.\scripts\deploy.ps1 -AutoApprove
+```
+
+Linux or macOS:
+
+```bash
+aws login
+bash scripts/deploy.sh
+```
+
+The deployment helper restricts the EKS public endpoint to your current `/32`,
+applies Terraform, configures kubeconfig, installs the package, and runs
+self-cleaning CPU/gVisor, EBS, S3/IRSA, autoscaling, and CUDA acceptance tests.
+It creates billable AWS resources and can take tens of minutes.
+
+Create a CPU sandbox:
+
+```powershell
+gvisor-sandbox create my-agent --ebs-size 8
+gvisor-sandbox exec my-agent -- python --version
+```
+
+Create an autoscaled NVIDIA L4 sandbox:
 
 ```powershell
 gvisor-sandbox create gpu-agent `
   --gpu-type nvidia-l4 `
-  --node-selector accelerator=nvidia-l4 `
   --image pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime `
-  --cpu 2 --memory 8Gi --ebs-size 40
+  --cpu 2 --memory 8Gi --timeout 2400
+
+gvisor-sandbox exec gpu-agent -- `
+  python -c "import torch; print(torch.cuda.get_device_name(0))"
 ```
 
-Submit a detached GPU job and reconnect later:
+## Documentation
 
-```powershell
-gvisor-sandbox job-run train.py --name training-1 --gpu-type nvidia-l4 --detach
-gvisor-sandbox job-status training-1
-gvisor-sandbox job-logs training-1
-gvisor-sandbox job-wait training-1 --timeout 86400
-gvisor-sandbox job-delete training-1
-```
+- [User guide](docs/user-guide.md): installation, deployment, CLI, Python API,
+  GPU autoscaling, storage, lifecycle, costs, and troubleshooting.
+- [Operations runbook](docs/operations.md): acceptance, monitoring, backups,
+  upgrades, and incident response.
+- [Security policy](SECURITY.md): supported versions, vulnerability reporting,
+  and trust boundaries.
+- [Contributing](CONTRIBUTING.md): development checks and pull-request rules.
+- [Release guide](docs/releasing.md): build, tag, PyPI, and GitHub release steps.
+- [Changelog](CHANGELOG.md): version history.
 
-Set `--ttl SECONDS` on sandboxes or jobs and run `gvisor-sandbox gc` periodically to remove expired resources. Kubernetes-native `--ttl-after-finished` is also available for Jobs.
-
-S3 is exposed as `SANDBOX_S3_URI`, `SANDBOX_S3_BUCKET`, and `SANDBOX_S3_PREFIX`; access it with boto3 or the AWS CLI through the IRSA service account. EBS is a normal filesystem mounted at `/workspace` by default. `upload_file` and `download_file` are convenient for small control files; use S3 for large datasets and artifacts. The Terraform configuration creates the `gvisor-sandbox` service account, S3 IAM permissions, EBS CSI add-on, and `gp3` StorageClass.
-
-Runnable examples:
-
-```powershell
-$env:PYTHONPATH="src"
-python examples\sandbox_platform_quickstart.py
-python examples\sandbox_platform_gpu_job.py
-```
-
-Run code from Python:
-
-```python
-from gvisor_sandbox import GvisorSandbox
-
-sandbox = GvisorSandbox()
-result = sandbox.run_python("""
-import platform
-
-print("hello from gVisor")
-print("kernel:", platform.release())
-""")
-
-print(result.logs)
-print(result.node_name)
-```
-
-Run code from the CLI:
+## Install only the client
 
 ```bash
-gvisor-sandbox examples/run_python.py --no-cleanup
+python -m pip install .
+gvisor-sandbox --help
 ```
 
-The default package configuration creates pods with:
+The client requires a compatible Kubernetes cluster. Installing the package
+does not create AWS infrastructure; use the Terraform deployment first.
 
-```yaml
-runtimeClassName: gvisor
-nodeSelector:
-  runtime.gvisor.dev/enabled: "true"
-```
-
-Run a CPU machine-learning workload in the sandbox:
+## Development
 
 ```bash
-python examples/ml_workload.py
+python -m pip install -e ".[dev]"
+ruff check .
+mypy src
+pytest --cov=gvisor_sandbox --cov-fail-under=35
+terraform -chdir=terraform fmt -check -recursive
+terraform -chdir=terraform init -backend=false -lockfile=readonly
+terraform -chdir=terraform validate
 ```
 
-The demo installs NumPy inside the sandbox pod, trains a small logistic
-regression model on synthetic data, runs batch inference, and prints training
-loss, accuracy, and the gVisor node that executed the workload. It does not
-require GPU nodes.
+## Project status
 
-### Reusable AWS Sandbox Sessions
+Version 0.4.0 is a release candidate. Local lint, typing, tests, Terraform
+validation, and package checks are automated. Maintainers must run the AWS
+acceptance test in a clean or explicitly approved test account before each
+release. This is not a hostile multi-tenant sandbox service.
 
-For agent-style workflows that need a named environment, persistent workspace disk, and shared object storage, use `AwsSandbox`:
+## License
 
-```python
-from gvisor_sandbox import AwsSandbox, EBSBlockStorage, S3ObjectStorage
-
-sandbox = AwsSandbox(
-    name="agent-dev-sandbox",
-    image="python:3.12-slim",
-    s3=S3ObjectStorage.from_uri("s3://my-sandbox-bucket/agent-dev-sandbox", region="us-east-1"),
-    ebs=EBSBlockStorage(size_gib=8, storage_class_name="gp3", mount_path="/workspace"),
-)
-
-sandbox.start(timeout_seconds=600)
-
-result = sandbox.run_python("""
-from pathlib import Path
-import os
-
-workspace = Path(os.environ["SANDBOX_WORKSPACE"])
-workspace.mkdir(parents=True, exist_ok=True)
-(workspace / "hello.txt").write_text("state persisted on EBS")
-
-print("workspace:", workspace)
-print("s3 uri:", os.environ["SANDBOX_S3_URI"])
-""")
-
-print(result.logs)
-
-sandbox.stop()   # stops compute; keeps S3 objects and the EBS PVC
-sandbox.start()  # resumes with the same PVC mounted again
-print(sandbox.exec(["cat", "/workspace/hello.txt"]))
-```
-
-Run the included example:
-
-```powershell
-$env:PYTHONPATH="src"
-$env:SANDBOX_S3_BUCKET="$(terraform -chdir=terraform output -raw sandbox_s3_bucket_name)"
-python examples\aws_sandbox_session.py
-```
-
-Delete the sandbox pod and PVC after the example:
-
-```powershell
-$env:SANDBOX_DELETE="1"
-python examples\aws_sandbox_session.py
-```
-
-Mapping from the Azure sandbox concepts to this AWS implementation:
-
-| Managed sandbox concept | AWS implementation in this repo |
-| --- | --- |
-| Secure code sandbox | EKS pod with `runtimeClassName: gvisor` / `runsc` |
-| Blob/object workspace | S3 bucket and IRSA-backed service account permissions |
-| Block storage | EBS CSI-provisioned `gp3` PersistentVolumeClaim |
-| Stop/resume state | Delete/recreate pod while retaining S3 objects and PVC data |
-| GPU jobs | Normal runtime GPU pods, not gVisor GPU passthrough |
-
-### GPU Requests
-
-The package supports declaring GPU resources through Kubernetes extended resources:
-
-```python
-from gvisor_sandbox import GPU, GvisorSandbox
-
-sandbox = GvisorSandbox(
-    runtime_class=None,
-    node_selector={"accelerator": "nvidia-l4"},
-)
-
-result = sandbox.run_python(
-    "print('gpu workload placeholder')",
-    image="python:3.12",
-    gpu=GPU.from_type("nvidia-l4", count=1),
-    timeout_seconds=900,
-)
-```
-
-By default, GPU requests are rejected when `runtime_class="gvisor"` because GPU device passthrough is not something this EKS gVisor deployment provides. To run real GPU workloads, add GPU-capable nodes and a device plugin such as the NVIDIA Kubernetes device plugin, then target a GPU-capable runtime or node pool explicitly.
-
-`run_python()` waits through Kubernetes `FailedScheduling` events until `timeout_seconds` expires. This allows clusters with cluster-autoscaler or Karpenter to scale GPU nodes from zero. If you want the older fail-fast behavior, pass `fail_fast_unschedulable=True`.
-
-If your cluster does not run an autoscaler, scale the GPU node group before submitting the job, for example:
-
-```powershell
-aws eks update-nodegroup-config `
-  --region us-east-1 `
-  --cluster-name gvisor-eks `
-  --nodegroup-name gvisor-eks-gpu-test `
-  --scaling-config minSize=0,maxSize=1,desiredSize=1
-```
-
-Run a small nanoGPT Shakespeare training job on a single T4/L4 GPU and save the local training curve:
-
-```powershell
-$env:PYTHONPATH="src"
-python examples\nanogpt_shakespeare_gpu.py --scale-up --scale-down
-```
-
-The example clones `karpathy/nanoGPT` inside the GPU pod, prepares `data/shakespeare_char`, runs a T4/L4-sized training configuration, and writes local artifacts:
-
-```text
-artifacts/nanogpt-shakespeare/nanogpt_train.log
-artifacts/nanogpt-shakespeare/training_curve.csv
-artifacts/nanogpt-shakespeare/training_curve.svg
-```
-
-Serve OpenAI `gpt-oss-20b` with vLLM on a single 16GB GPU and expose an OpenAI-compatible API:
-
-```powershell
-$env:PYTHONPATH="src"
-python examples\gpt_oss_20b_vllm_api.py --scale-up
-```
-
-The script deploys `openai/gpt-oss-20b`, which is MXFP4 quantized out of the box, through a vLLM server and prints both addresses:
-
-```text
-Cluster-internal OpenAI-compatible base_url: http://gpt-oss-20b-vllm.default.svc.cluster.local:8000/v1
-Local base_url after port-forward: http://127.0.0.1:8000/v1
-```
-
-Forward the API to this computer:
-
-```powershell
-kubectl port-forward -n default svc/gpt-oss-20b-vllm 8000:8000
-```
-
-Then call it with the OpenAI SDK:
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8000/v1",
-    api_key="EMPTY",
-)
-
-response = client.chat.completions.create(
-    model="openai/gpt-oss-20b",
-    messages=[{"role": "user", "content": "Explain MXFP4 quantization briefly."}],
-)
-
-print(response.choices[0].message.content)
-```
-
-Or run the included client:
-
-```powershell
-$env:GPT_OSS_BASE_URL="http://127.0.0.1:8000/v1"
-python examples\gpt_oss_20b_openai_client.py
-```
-
-When done:
-
-```powershell
-python examples\gpt_oss_20b_vllm_api.py --delete --scale-down
-```
+MIT License. See [LICENSE](LICENSE).

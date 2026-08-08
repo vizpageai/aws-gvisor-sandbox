@@ -4,7 +4,6 @@ import os
 
 from gvisor_sandbox import AwsSandbox, EBSBlockStorage, S3ObjectStorage
 
-
 bucket = os.environ.get("SANDBOX_S3_BUCKET")
 
 sandbox = AwsSandbox(

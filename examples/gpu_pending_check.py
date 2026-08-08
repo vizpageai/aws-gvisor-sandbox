@@ -1,6 +1,5 @@
 from gvisor_sandbox import GPU, GvisorSandbox, SchedulingError
 
-
 sandbox = GvisorSandbox(runtime_class=None, node_selector={"accelerator": "nvidia-l4"})
 
 try:

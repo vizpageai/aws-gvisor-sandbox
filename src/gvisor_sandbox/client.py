@@ -127,6 +127,7 @@ class GvisorSandbox:
         nodes = self.available_gpu_nodes(gpu, node_selector=node_selector)
         if not nodes:
             gpu_spec = self._normalize_gpu(gpu)
+            assert gpu_spec is not None
             raise SchedulingError(
                 "No schedulable nodes expose "
                 f"{gpu_spec.resource_name} >= {gpu_spec.count} with the requested node selector."
@@ -164,14 +165,22 @@ class GvisorSandbox:
             command=["python", "-c", code],
             env=[client.V1EnvVar(name=key, value=value) for key, value in sorted(env.items())],
             resources=resources,
+            security_context=client.V1SecurityContext(
+                allow_privilege_escalation=False,
+                capabilities=client.V1Capabilities(drop=["ALL"]),
+            ),
         )
 
         spec = client.V1PodSpec(
+            automount_service_account_token=False,
+            enable_service_links=False,
             restart_policy="Never",
             runtime_class_name=self.runtime_class,
             node_selector=node_selector or None,
             service_account_name=self.service_account_name,
             containers=[container],
+            security_context=client.V1PodSecurityContext(seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault")),
+            termination_grace_period_seconds=10,
         )
         metadata = client.V1ObjectMeta(name=name, namespace=self.namespace, labels=merged_labels)
         return client.V1Pod(api_version="v1", kind="Pod", metadata=metadata, spec=spec)

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 
-from gvisor_sandbox import ComputeResources, GPU, SandboxPlatform, SandboxSpec
-
+from gvisor_sandbox import GPU, ComputeResources, SandboxPlatform, SandboxSpec
 
 gpu_type = os.getenv("SANDBOX_GPU_TYPE", "nvidia-l4")
 platform = SandboxPlatform(namespace=os.getenv("SANDBOX_NAMESPACE", "default"))

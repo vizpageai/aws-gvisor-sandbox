@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from gvisor_sandbox import (
-    EBSBlockStorage,
     GPU,
+    EBSBlockStorage,
     RuntimeMode,
     S3ObjectStorage,
     SandboxPlatform,
@@ -27,7 +27,23 @@ class PlatformResourceTests(unittest.TestCase):
         self.assertEqual(pod_spec.runtime_class_name, "gvisor")
         self.assertEqual(pod_spec.restart_policy, "Always")
         self.assertEqual(pod_spec.node_selector, {"runtime.gvisor.dev/enabled": "true"})
-        self.assertIsNone(pod_spec.containers[0].resources.limits)
+        self.assertEqual(pod_spec.containers[0].resources.limits["cpu"], "2")
+        self.assertEqual(pod_spec.containers[0].resources.limits["memory"], "2Gi")
+        self.assertEqual(pod_spec.containers[0].resources.limits["ephemeral-storage"], "4Gi")
+        self.assertFalse(pod_spec.automount_service_account_token)
+        self.assertFalse(pod_spec.enable_service_links)
+        self.assertEqual(pod_spec.termination_grace_period_seconds, 10)
+
+    def test_job_has_server_side_deadline(self) -> None:
+        job = self.platform._job(
+            "bounded-job",
+            SandboxSpec(),
+            ["python", "-c", "print('ok')"],
+            3600,
+            active_deadline_seconds=300,
+        )
+        self.assertEqual(job.spec.active_deadline_seconds, 300)
+        self.assertEqual(job.spec.ttl_seconds_after_finished, 3600)
 
     def test_gpu_auto_runtime_uses_native_nvidia_resource(self) -> None:
         spec = SandboxSpec(gpu=GPU.from_type("nvidia-l4"))
@@ -83,9 +99,11 @@ class PlatformResourceTests(unittest.TestCase):
 class AgentHandleTests(unittest.TestCase):
     def test_run_returns_output_and_exit_code(self) -> None:
         handle = SandboxHandle(SimpleNamespace(), "agent")
-        with patch("gvisor_sandbox.platform.uuid.uuid4", return_value=SimpleNamespace(hex="abc")):
-            with patch.object(handle, "exec", return_value="hello\n__SANDBOX_EXIT_abc__7\n"):
-                result = handle.run(["sh", "-c", "exit 7"])
+        with (
+            patch("gvisor_sandbox.platform.uuid.uuid4", return_value=SimpleNamespace(hex="abc")),
+            patch.object(handle, "exec", return_value="hello\n__SANDBOX_EXIT_abc__7\n"),
+        ):
+            result = handle.run(["sh", "-c", "exit 7"])
         self.assertEqual(result.output, "hello")
         self.assertEqual(result.exit_code, 7)
         self.assertFalse(result.ok)

@@ -5,7 +5,6 @@ import sys
 
 from openai import OpenAI
 
-
 BASE_URL = os.getenv("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1")
 MODEL = os.getenv("OPENAI_MODEL", "openai/gpt-oss-20b")
 

@@ -7,16 +7,15 @@ import sys
 from .client import GvisorSandbox
 from .platform import JobHandle, SandboxPlatform
 from .types import (
+    GPU,
     ComputeResources,
     EBSBlockStorage,
-    GPU,
     RuntimeMode,
     S3ObjectStorage,
     SandboxSpec,
     SchedulingError,
     UnsupportedConfiguration,
 )
-
 
 COMMANDS = {
     "create",
@@ -268,17 +267,17 @@ def _platform_main(argv: list[str]) -> int:
         command = args.exec_command[1:] if args.exec_command[:1] == ["--"] else args.exec_command
         if not command:
             raise ValueError("exec requires a command after the sandbox name")
-        result = platform.sandbox(args.name).run(command, timeout_seconds=args.timeout)
-        if result.output:
-            print(result.output)
-        return result.exit_code
+        command_result = platform.sandbox(args.name).run(command, timeout_seconds=args.timeout)
+        if command_result.output:
+            print(command_result.output)
+        return command_result.exit_code
     elif args.command == "python":
-        result = platform.sandbox(args.name).run_python(_read_source(args.source), timeout_seconds=args.timeout)
-        if result.output:
-            print(result.output)
-        return result.exit_code
+        command_result = platform.sandbox(args.name).run_python(_read_source(args.source), timeout_seconds=args.timeout)
+        if command_result.output:
+            print(command_result.output)
+        return command_result.exit_code
     elif args.command == "job-run":
-        result = platform.submit_python(
+        submitted = platform.submit_python(
             _read_source(args.source),
             name=args.name,
             spec=_spec(args),
@@ -286,12 +285,12 @@ def _platform_main(argv: list[str]) -> int:
             timeout_seconds=args.timeout,
             ttl_seconds_after_finished=args.ttl_after_finished,
         )
-        if isinstance(result, JobHandle):
-            print(f"job={result.name} status={result.status()}")
+        if isinstance(submitted, JobHandle):
+            print(f"job={submitted.name} status={submitted.status()}")
         else:
-            print(result.logs, end="" if result.logs.endswith("\n") else "\n")
-            print(f"job={result.name} phase={result.phase} exit_code={result.exit_code}", file=sys.stderr)
-            return 0 if result.ok else 1
+            print(submitted.logs, end="" if submitted.logs.endswith("\n") else "\n")
+            print(f"job={submitted.name} phase={submitted.phase} exit_code={submitted.exit_code}", file=sys.stderr)
+            return 0 if submitted.ok else 1
     elif args.command == "job-list":
         for name in platform.list_jobs():
             print(f"name={name} status={platform.job(name).status()}")
@@ -300,9 +299,9 @@ def _platform_main(argv: list[str]) -> int:
     elif args.command == "job-logs":
         print(platform.job(args.name).logs())
     elif args.command == "job-wait":
-        result = platform.job(args.name).wait(timeout_seconds=args.timeout)
-        print(result.logs, end="" if result.logs.endswith("\n") else "\n")
-        return 0 if result.ok else 1
+        job_result = platform.job(args.name).wait(timeout_seconds=args.timeout)
+        print(job_result.logs, end="" if job_result.logs.endswith("\n") else "\n")
+        return 0 if job_result.ok else 1
     elif args.command == "job-delete":
         platform.job(args.name).delete(delete_storage=args.storage)
         print(f"deleted job {args.name} storage={str(args.storage).lower()}")

@@ -41,7 +41,7 @@ class GPU:
             raise ValueError("GPU resource_name must be a Kubernetes extended resource such as nvidia.com/gpu")
 
     @classmethod
-    def from_type(cls, gpu_type: str, count: int = 1) -> "GPU":
+    def from_type(cls, gpu_type: str, count: int = 1) -> GPU:
         normalized = gpu_type.strip().lower()
         if not normalized:
             raise ValueError("gpu_type cannot be empty")
@@ -75,7 +75,7 @@ class S3ObjectStorage:
     region: str | None = None
 
     @classmethod
-    def from_uri(cls, uri: str, *, region: str | None = None) -> "S3ObjectStorage":
+    def from_uri(cls, uri: str, *, region: str | None = None) -> S3ObjectStorage:
         if not uri.startswith("s3://"):
             raise ValueError("S3 URI must start with s3://")
         path = uri[5:]
@@ -115,9 +115,9 @@ class ComputeResources:
 
     cpu: str = "500m"
     memory: str = "1Gi"
-    ephemeral_storage: str | None = None
-    cpu_limit: str | None = None
-    memory_limit: str | None = None
+    ephemeral_storage: str | None = "4Gi"
+    cpu_limit: str | None = "2"
+    memory_limit: str | None = "2Gi"
 
 
 @dataclass(frozen=True)

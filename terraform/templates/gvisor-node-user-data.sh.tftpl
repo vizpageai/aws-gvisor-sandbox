@@ -4,7 +4,7 @@ set -euxo pipefail
 exec > >(tee /var/log/gvisor-node-bootstrap.log | logger -t gvisor-node-bootstrap -s 2>/dev/console) 2>&1
 
 ARCH="$(uname -m)"
-GVISOR_URL="https://storage.googleapis.com/gvisor/releases/${gvisor_release_channel}/latest/$${ARCH}"
+GVISOR_URL="https://storage.googleapis.com/gvisor/releases/${gvisor_release_channel}/${gvisor_release_version}/$${ARCH}"
 WORKDIR="$(mktemp -d)"
 
 cleanup() {
@@ -42,4 +42,3 @@ fi
 
 systemctl restart containerd
 systemctl restart kubelet
-

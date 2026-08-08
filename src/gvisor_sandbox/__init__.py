@@ -2,10 +2,10 @@ from .aws_sandbox import AwsSandbox
 from .client import GvisorSandbox
 from .platform import JobHandle, SandboxHandle, SandboxPlatform
 from .types import (
+    GPU,
     CommandResult,
     ComputeResources,
     EBSBlockStorage,
-    GPU,
     RunResult,
     RuntimeMode,
     S3ObjectStorage,
@@ -14,6 +14,8 @@ from .types import (
     SchedulingError,
     UnsupportedConfiguration,
 )
+
+__version__ = "0.4.0"
 
 __all__ = [
     "AwsSandbox",
@@ -32,4 +34,5 @@ __all__ = [
     "SandboxStatus",
     "SchedulingError",
     "UnsupportedConfiguration",
+    "__version__",
 ]

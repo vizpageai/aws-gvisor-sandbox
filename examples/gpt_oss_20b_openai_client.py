@@ -4,7 +4,6 @@ import os
 
 from openai import OpenAI
 
-
 base_url = os.environ.get("GPT_OSS_BASE_URL", "http://127.0.0.1:8000/v1")
 
 client = OpenAI(

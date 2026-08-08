@@ -23,6 +23,21 @@ output "gpu_node_group_name" {
   value       = try(aws_eks_node_group.gpu[0].node_group_name, null)
 }
 
+output "ubuntu_eks_ami_id" {
+  description = "Canonical Ubuntu EKS AMI used by CPU and GPU node launch templates."
+  value       = data.aws_ami.ubuntu_eks.id
+}
+
+output "gpu_operator_enabled" {
+  description = "Whether NVIDIA GPU Operator is installed."
+  value       = var.enable_gpu_node_group
+}
+
+output "cluster_autoscaler_enabled" {
+  description = "Whether the in-cluster AWS Cluster Autoscaler is installed."
+  value       = var.enable_cluster_autoscaler
+}
+
 output "runtime_class_name" {
   description = "Kubernetes RuntimeClass for gVisor workloads."
   value       = kubernetes_runtime_class_v1.gvisor.metadata[0].name

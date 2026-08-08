@@ -44,6 +44,37 @@ resource "aws_s3_bucket_versioning" "sandbox_objects" {
   }
 }
 
+data "aws_iam_policy_document" "sandbox_bucket" {
+  count = var.enable_sandbox_s3 ? 1 : 0
+
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.sandbox_objects[0].arn,
+      "${aws_s3_bucket.sandbox_objects[0].arn}/*",
+    ]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "sandbox_objects" {
+  count  = var.enable_sandbox_s3 ? 1 : 0
+  bucket = aws_s3_bucket.sandbox_objects[0].id
+  policy = data.aws_iam_policy_document.sandbox_bucket[0].json
+}
+
 data "aws_iam_policy_document" "sandbox_service_account_assume_role" {
   statement {
     effect = "Allow"
@@ -113,6 +144,8 @@ resource "aws_iam_role_policy_attachment" "sandbox_s3_access" {
 }
 
 resource "kubernetes_service_account_v1" "sandbox" {
+  automount_service_account_token = false
+
   metadata {
     name      = var.sandbox_service_account_name
     namespace = var.sandbox_namespace

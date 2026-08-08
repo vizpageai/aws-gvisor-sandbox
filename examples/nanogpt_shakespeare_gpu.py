@@ -10,7 +10,6 @@ from pathlib import Path
 
 from gvisor_sandbox import GPU, GvisorSandbox
 
-
 EVAL_RE = re.compile(r"step\s+(\d+):\s+train loss\s+([0-9.]+),\s+val loss\s+([0-9.]+)")
 ITER_RE = re.compile(r"iter\s+(\d+):\s+loss\s+([0-9.]+),")
 

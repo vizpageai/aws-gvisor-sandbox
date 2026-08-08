@@ -191,15 +191,23 @@ class AwsSandbox:
             command=["sh", "-lc", "trap 'exit 0' TERM INT; while true; do sleep 3600; done"],
             env=[client.V1EnvVar(name=key, value=value) for key, value in sorted(env.items())],
             volume_mounts=volume_mounts or None,
+            security_context=client.V1SecurityContext(
+                allow_privilege_escalation=False,
+                capabilities=client.V1Capabilities(drop=["ALL"]),
+            ),
         )
 
         spec = client.V1PodSpec(
+            automount_service_account_token=False,
+            enable_service_links=False,
             restart_policy="Never",
             runtime_class_name=self.runtime_class,
             node_selector=self.node_selector or None,
             service_account_name=self.service_account_name,
             containers=[container],
             volumes=volumes or None,
+            security_context=client.V1PodSecurityContext(seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault")),
+            termination_grace_period_seconds=10,
         )
         metadata = client.V1ObjectMeta(name=self.name, namespace=self.namespace, labels=labels)
         return client.V1Pod(api_version="v1", kind="Pod", metadata=metadata, spec=spec)
@@ -207,6 +215,7 @@ class AwsSandbox:
     def _ensure_pvc(self, api) -> None:
         from kubernetes import client
 
+        assert self.ebs is not None
         pvc = client.V1PersistentVolumeClaim(
             api_version="v1",
             kind="PersistentVolumeClaim",
