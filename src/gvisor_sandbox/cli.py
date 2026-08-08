@@ -146,15 +146,20 @@ def _legacy_main(argv: list[str]) -> int:
     parser.add_argument("--no-cleanup", action="store_true")
     parser.add_argument("--gpu-type")
     parser.add_argument("--gpu-count", type=int, default=1)
-    parser.add_argument("--allow-gpu-with-gvisor", action="store_true")
+    parser.add_argument(
+        "--gpu-runtime-class",
+        default="gvisor-nvproxy",
+        help="GPU RuntimeClass; use 'native' only for trusted compatibility workloads",
+    )
     parser.add_argument("--fail-fast-unschedulable", action="store_true")
     args = parser.parse_args(argv)
     gpu = GPU.from_type(args.gpu_type, count=args.gpu_count) if args.gpu_type else None
+    gpu_runtime_class = None if args.gpu_runtime_class == "native" else args.gpu_runtime_class
     sandbox = GvisorSandbox(
         namespace=args.namespace,
         runtime_class=args.runtime_class,
         cleanup=not args.no_cleanup,
-        allow_gpu_with_gvisor=args.allow_gpu_with_gvisor,
+        gpu_runtime_class=gpu_runtime_class,
     )
     result = sandbox.run_python(
         _read_source(args.source),

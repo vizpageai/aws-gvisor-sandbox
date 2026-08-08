@@ -14,6 +14,7 @@ from gvisor_sandbox import (
     UnsupportedConfiguration,
 )
 from gvisor_sandbox.cli import _key_values
+from gvisor_sandbox.client import GvisorSandbox
 from gvisor_sandbox.platform import SandboxHandle
 
 
@@ -45,12 +46,12 @@ class PlatformResourceTests(unittest.TestCase):
         self.assertEqual(job.spec.active_deadline_seconds, 300)
         self.assertEqual(job.spec.ttl_seconds_after_finished, 3600)
 
-    def test_gpu_auto_runtime_uses_native_nvidia_resource(self) -> None:
+    def test_gpu_auto_runtime_uses_gvisor_nvproxy(self) -> None:
         spec = SandboxSpec(gpu=GPU.from_type("nvidia-l4"))
         deployment = self.platform._deployment("gpu-agent", spec, replicas=1)
         pod_spec = deployment.spec.template.spec
         resources = pod_spec.containers[0].resources
-        self.assertIsNone(pod_spec.runtime_class_name)
+        self.assertEqual(pod_spec.runtime_class_name, "gvisor-nvproxy")
         self.assertEqual(pod_spec.node_selector["accelerator"], "nvidia-l4")
         self.assertEqual(resources.requests["nvidia.com/gpu"], "1")
         self.assertEqual(resources.limits["nvidia.com/gpu"], "1")
@@ -58,6 +59,25 @@ class PlatformResourceTests(unittest.TestCase):
     def test_gpu_with_gvisor_is_rejected(self) -> None:
         with self.assertRaises(UnsupportedConfiguration):
             SandboxSpec(runtime=RuntimeMode.GVISOR, gpu=GPU.from_type("nvidia-l4"))
+
+    def test_explicit_gvisor_nvproxy_requires_gpu(self) -> None:
+        with self.assertRaises(UnsupportedConfiguration):
+            SandboxSpec(runtime=RuntimeMode.GVISOR_NVPROXY)
+
+    def test_explicit_gvisor_nvproxy_uses_gpu_runtime(self) -> None:
+        spec = SandboxSpec(runtime=RuntimeMode.GVISOR_NVPROXY, gpu=GPU.from_type("nvidia-l4"))
+        deployment = self.platform._deployment("gpu-agent", spec, replicas=1)
+        self.assertEqual(deployment.spec.template.spec.runtime_class_name, "gvisor-nvproxy")
+
+    def test_explicit_native_gpu_is_compatibility_fallback(self) -> None:
+        spec = SandboxSpec(runtime=RuntimeMode.NATIVE, gpu=GPU.from_type("nvidia-l4"))
+        deployment = self.platform._deployment("gpu-agent", spec, replicas=1)
+        self.assertIsNone(deployment.spec.template.spec.runtime_class_name)
+
+    def test_legacy_client_defaults_gpu_to_nvproxy(self) -> None:
+        client = GvisorSandbox()
+        self.assertEqual(client._runtime_class(GPU.from_type("nvidia-l4")), "gvisor-nvproxy")
+        self.assertEqual(client._runtime_class(None), "gvisor")
 
     def test_s3_and_ebs_are_connected_to_container(self) -> None:
         spec = SandboxSpec(

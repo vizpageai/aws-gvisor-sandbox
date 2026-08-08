@@ -24,6 +24,7 @@ gpu_min_size            = 0
 gpu_max_size            = 1
 gpu_accelerator_label   = "nvidia-l4"
 gpu_operator_chart_version = "v26.3.3"
+gpu_driver_version         = "590.48.01"
 
 enable_cluster_autoscaler       = true
 cluster_autoscaler_chart_version = "9.59.0"

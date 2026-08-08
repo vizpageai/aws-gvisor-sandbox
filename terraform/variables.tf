@@ -105,7 +105,7 @@ variable "enable_smoke_test" {
 }
 
 variable "enable_gpu_node_group" {
-  description = "Create a separate GPU node group for non-gVisor GPU workloads."
+  description = "Create a separate GPU node group with gVisor nvproxy support."
   type        = bool
   default     = true
 }
@@ -144,6 +144,17 @@ variable "gpu_operator_chart_version" {
   description = "NVIDIA GPU Operator chart version used to install the driver, container toolkit, and device plugin on Ubuntu GPU nodes."
   type        = string
   default     = "v26.3.3"
+}
+
+variable "gpu_driver_version" {
+  description = "NVIDIA driver version pinned to an ABI supported by the selected gVisor nvproxy release."
+  type        = string
+  default     = "590.48.01"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.gpu_driver_version))
+    error_message = "gpu_driver_version must be an exact NVIDIA driver version such as 590.48.01."
+  }
 }
 
 variable "enable_cluster_autoscaler" {

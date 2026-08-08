@@ -215,9 +215,12 @@ resource "aws_launch_template" "gpu_node" {
   name_prefix = "${var.name}-gpu-ubuntu-"
   image_id    = data.aws_ami.ubuntu_eks.id
   user_data = base64encode(templatefile("${path.module}/templates/ubuntu-node-user-data.sh.tftpl", {
-    cluster_name     = module.eks.cluster_name
-    cluster_endpoint = module.eks.cluster_endpoint
-    cluster_ca       = module.eks.cluster_certificate_authority_data
+    cluster_name           = module.eks.cluster_name
+    cluster_endpoint       = module.eks.cluster_endpoint
+    cluster_ca             = module.eks.cluster_certificate_authority_data
+    gvisor_release_channel = var.gvisor_release_channel
+    gvisor_release_version = var.gvisor_release_version
+    gpu_driver_version     = var.gpu_driver_version
   }))
 
   metadata_options {
@@ -346,6 +349,18 @@ resource "kubernetes_runtime_class_v1" "gvisor" {
   handler = "runsc"
 
   depends_on = [aws_eks_node_group.gvisor]
+}
+
+resource "kubernetes_runtime_class_v1" "gvisor_nvproxy" {
+  count = var.enable_gpu_node_group ? 1 : 0
+
+  metadata {
+    name = "gvisor-nvproxy"
+  }
+
+  handler = "runsc-nvproxy"
+
+  depends_on = [aws_eks_node_group.gpu]
 }
 
 resource "kubernetes_pod_v1" "smoke" {

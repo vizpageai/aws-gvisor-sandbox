@@ -1,10 +1,8 @@
 from gvisor_sandbox import GPU, GvisorSandbox
 
-# This intentionally uses a non-gVisor runtime. gVisor normally does not expose
-# GPU devices into the sandbox. Your cluster still needs GPU nodes and a device
-# plugin such as the NVIDIA Kubernetes device plugin.
+# GPU requests use gVisor nvproxy. The cluster still needs GPU nodes and a
+# device plugin such as the NVIDIA Kubernetes device plugin.
 sandbox = GvisorSandbox(
-    runtime_class=None,
     node_selector={"accelerator": "nvidia-l4"},
 )
 

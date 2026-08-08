@@ -12,6 +12,8 @@ the test. GPU verification can take tens of minutes when scaling from zero.
 - Confirm EKS control-plane and VPC flow logs are arriving in CloudWatch.
 - Check `cluster-autoscaler` logs for failed scale-ups and exhausted quotas.
 - Check GPU Operator ClusterPolicy status and validator pods.
+- Confirm GPU pods report `runtimeClassName: gvisor-nvproxy`; alert on native
+  GPU pods unless they are explicitly approved compatibility workloads.
 - Monitor EBS, S3, NAT Gateway, EKS, and GPU EC2 cost.
 - Run `gvisor-sandbox gc` on a schedule if wall-clock sandbox TTLs are used.
 - Review Dependabot updates and rerun acceptance tests before merging them.
@@ -43,5 +45,7 @@ interactive Terraform plan; do not use it as an unattended migration tool.
    node compromise.
 5. Report project vulnerabilities according to `SECURITY.md`.
 
-GPU jobs use the native host kernel. Run mutually untrusted GPU tenants in
-separate AWS accounts and clusters.
+GPU jobs use gVisor nvproxy, but permitted driver operations still reach the
+host NVIDIA kernel driver. Treat a driver exploit as potential node compromise,
+replace affected nodes, and run mutually hostile GPU tenants in separate AWS
+accounts and clusters.

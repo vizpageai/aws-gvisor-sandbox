@@ -25,13 +25,15 @@ The platform provides two different execution boundaries:
 | Workload | Runtime | Intended code |
 | --- | --- | --- |
 | CPU | gVisor `runsc` | Agent-generated or less-trusted code |
-| NVIDIA GPU | Native container runtime | Trusted code only |
+| NVIDIA GPU | gVisor `runsc --nvproxy` | Agent-generated or less-trusted code |
 
 gVisor reduces direct interaction with the host kernel; it does not replace
 IAM isolation, Kubernetes authorization, network controls, patching, or account
-separation. NVIDIA drivers require host-kernel integration, so GPU workloads do
-not receive the gVisor boundary. Do not place mutually hostile GPU tenants in
-this cluster. Use separate AWS accounts and clusters instead.
+separation. nvproxy keeps GPU workloads inside gVisor and forwards a restricted
+NVIDIA ioctl surface, but those calls still reach the host kernel driver. A
+driver vulnerability can therefore cross the intended boundary. Do not place
+mutually hostile GPU tenants in one cluster; use separate AWS accounts and
+clusters or a reviewed VM-based GPU boundary.
 
 The default sandbox service account shares access to the configured S3 bucket.
 The project therefore targets one trusted team, not public multi-tenancy.
@@ -113,7 +115,8 @@ Set `PUBLIC_IP` to override address discovery or
 - An EKS 1.36 control plane with a private endpoint and restricted public
   endpoint.
 - One Ubuntu 24.04 CPU node by default, with gVisor installed.
-- An Ubuntu 24.04 GPU node group with desired and minimum size zero.
+- An Ubuntu 24.04 GPU node group with gVisor nvproxy and desired/minimum size
+  zero.
 - Cluster Autoscaler, NVIDIA GPU Operator, EBS CSI, and VPC CNI network policy.
 - An encrypted/versioned S3 bucket, IRSA role, and encrypted `gp3` storage.
 - CloudWatch control-plane logs and VPC flow logs.
@@ -133,6 +136,7 @@ Useful settings:
 | `gpu_min_size` | `0` | Permits zero idle GPU nodes |
 | `gpu_max_size` | `1` | Maximum automatically provisioned GPU nodes |
 | `gpu_node_instance_types` | `["g6.xlarge"]` | GPU EC2 types |
+| `gpu_driver_version` | `590.48.01` | Driver ABI pinned to the gVisor release |
 | `enable_cluster_autoscaler` | `true` | Pod-driven node scaling |
 | `enable_sandbox_s3` | `true` | S3 and sandbox IRSA integration |
 | `enable_ebs_csi` | `true` | Persistent EBS workspaces |
@@ -156,7 +160,7 @@ Quick health checks:
 
 ```bash
 kubectl get nodes -L runtime.gvisor.dev/enabled,accelerator
-kubectl get runtimeclass gvisor
+kubectl get runtimeclass gvisor gvisor-nvproxy
 kubectl get deployment cluster-autoscaler -n kube-system
 kubectl get pods -n gpu-operator
 ```
@@ -236,8 +240,19 @@ gvisor-sandbox job-wait training-1 --timeout 86400
 gvisor-sandbox job-delete training-1
 ```
 
-Runtime `auto` selects gVisor for CPU and native runtime for GPU. Explicitly
-requesting `--runtime gvisor` with a GPU is rejected.
+Runtime `auto` selects `gvisor` for CPU and `gvisor-nvproxy` for GPU. You may
+also request `--runtime gvisor-nvproxy` explicitly. `--runtime native` bypasses
+gVisor and is provided only for trusted workloads that are incompatible with
+nvproxy; never use that fallback for untrusted code.
+
+Confirm the runtime used by a sandbox:
+
+```bash
+gvisor-sandbox status gpu-agent
+kubectl get pod -l sandbox.platform/name=gpu-agent -o jsonpath='{.items[0].spec.runtimeClassName}{"\n"}'
+```
+
+The value must be `gvisor-nvproxy` for an isolated GPU sandbox.
 
 ## Use persistent storage
 
@@ -361,6 +376,17 @@ kubectl describe node NODE_NAME
 ```
 
 Wait for the NVIDIA driver, toolkit, validator, and device-plugin components.
+If the pod starts but nvproxy reports an unsupported driver, verify the pinned
+pair and replace the GPU nodes after correcting it:
+
+```bash
+terraform -chdir=terraform output gpu_runtime_class_name
+kubectl logs -n gpu-operator -l app=nvidia-operator-validator --all-containers --tail=200
+```
+
+Do not change `gpu_driver_version` independently of `gvisor_release_version`.
+GPU node bootstrap fails closed if the selected gVisor binary does not list the
+configured driver ABI as supported.
 
 ### CPU pod fails under gVisor
 

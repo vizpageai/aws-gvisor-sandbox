@@ -75,7 +75,7 @@ print((torch.ones(16, device="cuda") * 2).sum().item())
             timeout_seconds=2400,
             ttl_seconds_after_finished=3600,
         )
-        if not result.ok or result.runtime_class_name is not None:
+        if not result.ok or result.runtime_class_name != "gvisor-nvproxy":
             raise RuntimeError(f"GPU verification failed: {result}")
     finally:
         try:

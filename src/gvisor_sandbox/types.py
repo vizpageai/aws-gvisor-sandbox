@@ -17,6 +17,7 @@ class RuntimeMode(str, Enum):
 
     AUTO = "auto"
     GVISOR = "gvisor"
+    GVISOR_NVPROXY = "gvisor-nvproxy"
     NATIVE = "native"
 
 
@@ -142,9 +143,11 @@ class SandboxSpec:
         object.__setattr__(self, "runtime", runtime)
         if runtime == RuntimeMode.GVISOR and self.gpu is not None:
             raise UnsupportedConfiguration(
-                "This platform does not provide gVisor GPU passthrough. "
-                "Use runtime='auto' or runtime='native' for GPU workloads."
+                "runtime='gvisor' is CPU-only. Use runtime='auto' or "
+                "runtime='gvisor-nvproxy' for an isolated GPU workload."
             )
+        if runtime == RuntimeMode.GVISOR_NVPROXY and self.gpu is None:
+            raise UnsupportedConfiguration("runtime='gvisor-nvproxy' requires a GPU request")
         if self.working_dir is not None and not self.working_dir.startswith("/"):
             raise ValueError("working_dir must be an absolute container path")
         if self.ttl_seconds is not None and self.ttl_seconds < 1:

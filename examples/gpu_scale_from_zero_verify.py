@@ -70,7 +70,7 @@ def main() -> None:
 
     selector_key, selector_value = args.selector.split("=", 1)
     sandbox = GvisorSandbox(
-        runtime_class=None,
+        runtime_class="gvisor-nvproxy",
         node_selector={selector_key: selector_value},
     )
 

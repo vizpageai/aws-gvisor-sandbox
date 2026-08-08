@@ -19,8 +19,13 @@ output "gvisor_node_group_name" {
 }
 
 output "gpu_node_group_name" {
-  description = "Managed GPU node group for non-gVisor GPU workloads."
+  description = "Managed GPU node group configured for gVisor nvproxy workloads."
   value       = try(aws_eks_node_group.gpu[0].node_group_name, null)
+}
+
+output "gpu_runtime_class_name" {
+  description = "Kubernetes RuntimeClass for gVisor-isolated NVIDIA GPU workloads."
+  value       = try(kubernetes_runtime_class_v1.gvisor_nvproxy[0].metadata[0].name, null)
 }
 
 output "ubuntu_eks_ami_id" {

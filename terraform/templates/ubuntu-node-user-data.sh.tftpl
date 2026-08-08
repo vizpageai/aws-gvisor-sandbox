@@ -3,7 +3,54 @@ set -euxo pipefail
 
 exec > >(tee /var/log/ubuntu-eks-node-bootstrap.log | logger -t ubuntu-eks-node-bootstrap -s 2>/dev/console) 2>&1
 
+ARCH="$(uname -m)"
+GVISOR_URL="https://storage.googleapis.com/gvisor/releases/${gvisor_release_channel}/${gvisor_release_version}/$${ARCH}"
+WORKDIR="$(mktemp -d)"
+
+cleanup() {
+  rm -rf "$${WORKDIR}"
+}
+trap cleanup EXIT
+
+cd "$${WORKDIR}"
+curl -fsSLO "$${GVISOR_URL}/runsc"
+curl -fsSLO "$${GVISOR_URL}/runsc.sha512"
+curl -fsSLO "$${GVISOR_URL}/containerd-shim-runsc-v1"
+curl -fsSLO "$${GVISOR_URL}/containerd-shim-runsc-v1.sha512"
+sha512sum -c runsc.sha512
+sha512sum -c containerd-shim-runsc-v1.sha512
+install -o root -g root -m 0755 runsc /usr/local/bin/runsc
+install -o root -g root -m 0755 containerd-shim-runsc-v1 /usr/local/bin/containerd-shim-runsc-v1
+
+# Fail node bootstrap when Terraform selects a driver ABI this runsc build does
+# not understand. Unknown driver ABIs must never silently fall back to native.
+/usr/local/bin/runsc nvproxy list-supported-drivers | grep -Fx -- "${gpu_driver_version}"
+
 /etc/eks/bootstrap.sh "${cluster_name}" \
   --apiserver-endpoint "${cluster_endpoint}" \
   --b64-cluster-ca "${cluster_ca}" \
   --container-runtime containerd
+
+mkdir -p /etc/containerd
+if [ ! -s /etc/containerd/config.toml ]; then
+  containerd config default > /etc/containerd/config.toml
+fi
+
+cat > /etc/containerd/runsc-nvproxy.toml <<'EOF'
+[runsc_config]
+  nvproxy = "true"
+EOF
+
+if ! grep -q 'runtimes.runsc-nvproxy' /etc/containerd/config.toml; then
+  cat >> /etc/containerd/config.toml <<'EOF'
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc-nvproxy]
+  runtime_type = "io.containerd.runsc.v1"
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc-nvproxy.options]
+    TypeUrl = "io.containerd.runsc.v1.options"
+    ConfigPath = "/etc/containerd/runsc-nvproxy.toml"
+EOF
+fi
+
+systemctl restart containerd
+systemctl restart kubelet

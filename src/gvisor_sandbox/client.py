@@ -24,14 +24,19 @@ class GvisorSandbox:
         service_account_name: str | None = None,
         cleanup: bool = True,
         allow_gpu_with_gvisor: bool = False,
+        gpu_runtime_class: str | None = "gvisor-nvproxy",
+        gpu_node_selector: Mapping[str, str] | None = None,
     ) -> None:
         self.namespace = namespace
         self.runtime_class = runtime_class
+        self._uses_default_cpu_selector = node_selector is None
         self.node_selector = dict(node_selector or {"runtime.gvisor.dev/enabled": "true"})
+        self.gpu_node_selector = dict(gpu_node_selector or {})
         self.kube_context = kube_context
         self.service_account_name = service_account_name
         self.cleanup = cleanup
         self.allow_gpu_with_gvisor = allow_gpu_with_gvisor
+        self.gpu_runtime_class = gpu_runtime_class
         self._core_api = None
 
     def run_python(
@@ -103,7 +108,11 @@ class GvisorSandbox:
         if gpu_spec is None:
             return []
 
-        selector = dict(self.node_selector if node_selector is None else node_selector)
+        if node_selector is None:
+            selector = {} if self._uses_default_cpu_selector else dict(self.node_selector)
+            selector.update(self.gpu_node_selector)
+        else:
+            selector = dict(node_selector)
         selector.update(gpu_spec.node_selector)
         matches: list[str] = []
 
@@ -149,9 +158,10 @@ class GvisorSandbox:
         merged_labels = {"app": "gvisor-sandbox", "gvisor-sandbox/run": name}
         merged_labels.update(labels)
 
-        node_selector = dict(self.node_selector)
+        node_selector = {} if gpu is not None and self._uses_default_cpu_selector else dict(self.node_selector)
         resources = None
         if gpu is not None:
+            node_selector.update(self.gpu_node_selector)
             node_selector.update(gpu.node_selector)
             env.setdefault("GVISOR_SANDBOX_GPU_TYPE", gpu.type)
             resources = client.V1ResourceRequirements(
@@ -175,7 +185,7 @@ class GvisorSandbox:
             automount_service_account_token=False,
             enable_service_links=False,
             restart_policy="Never",
-            runtime_class_name=self.runtime_class,
+            runtime_class_name=self._runtime_class(gpu),
             node_selector=node_selector or None,
             service_account_name=self.service_account_name,
             containers=[container],
@@ -271,12 +281,17 @@ class GvisorSandbox:
     def _validate_gpu_runtime(self, gpu: GPU | None) -> None:
         if gpu is None:
             return
-        if self.runtime_class == "gvisor" and not self.allow_gpu_with_gvisor:
+        if self.runtime_class == "gvisor" and self.gpu_runtime_class is None and not self.allow_gpu_with_gvisor:
             raise UnsupportedConfiguration(
-                "GPU workloads cannot be safely assumed to run inside gVisor. "
-                "Use a GPU-capable non-gVisor RuntimeClass or set "
-                "allow_gpu_with_gvisor=True only after validating your runtime and device plugin."
+                "GPU isolation requires the gvisor-nvproxy RuntimeClass. "
+                "Set gpu_runtime_class='gvisor-nvproxy', or explicitly select "
+                "runtime_class=None only for trusted compatibility workloads."
             )
+
+    def _runtime_class(self, gpu: GPU | None) -> str | None:
+        if gpu is not None and self.runtime_class == "gvisor":
+            return self.gpu_runtime_class
+        return self.runtime_class
 
     def _is_not_found(self, exc: Exception) -> bool:
         status = getattr(exc, "status", None)

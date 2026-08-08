@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 - Unreleased
+
+- Run GPU sandboxes with gVisor nvproxy by default through a dedicated
+  `gvisor-nvproxy` RuntimeClass.
+- Install checksum-verified gVisor binaries on Ubuntu GPU nodes and pin the
+  NVIDIA driver to an ABI supported by that gVisor release.
+- Keep the native NVIDIA runtime as an explicit trusted-workload fallback.
+
 This project follows Semantic Versioning.
 
 ## Unreleased

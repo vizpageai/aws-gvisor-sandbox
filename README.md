@@ -2,19 +2,22 @@
 
 Run reusable AI-agent sandboxes and batch jobs on Amazon EKS. CPU workloads use
 gVisor (`runsc`) for an additional userspace-kernel isolation boundary. GPU
-workloads run on autoscaled Ubuntu NVIDIA nodes using the native container
-runtime.
+workloads run on autoscaled Ubuntu NVIDIA nodes through gVisor's
+`nvproxy`, which exposes an allowlisted NVIDIA driver interface without giving
+the container the host kernel ABI.
 
 > [!IMPORTANT]
-> This release targets a single trusted team in one AWS account. GPU workloads
-> do **not** run inside gVisor and must be trusted. Read the
-> [security policy](SECURITY.md) before deployment.
+> gVisor materially reduces the host attack surface; it is not a perfect
+> security boundary. GPU jobs still reach the host NVIDIA kernel driver through
+> nvproxy. Read the [security policy](SECURITY.md) before accepting hostile or
+> multi-tenant workloads.
 
 ## Highlights
 
 - Kubernetes 1.36 on Canonical Ubuntu 24.04 LTS worker nodes.
 - CPU sandboxes isolated with a pinned, checksum-verified gVisor release.
-- NVIDIA L4 GPU workloads with GPU Operator and scale-from-zero.
+- NVIDIA L4 GPU workloads isolated with gVisor nvproxy, GPU Operator, and
+  scale-from-zero.
 - Reusable sandboxes, synchronous jobs, and detached jobs from one Python API
   and CLI.
 - Optional persistent EBS workspaces and IRSA-authorized S3 object storage.
@@ -31,7 +34,7 @@ flowchart LR
     E --> C[CPU sandbox or job]
     E --> G[GPU sandbox or job]
     C --> R[gVisor runsc\nUbuntu CPU node]
-    G --> N[Native NVIDIA runtime\nUbuntu GPU node]
+    G --> N[gVisor nvproxy\nUbuntu GPU node]
     A[Cluster Autoscaler] --> N
     C --> S[(S3 objects)]
     C --> B[(EBS workspace)]
@@ -41,7 +44,9 @@ flowchart LR
 
 The CPU pool keeps one node online for system services. The GPU pool starts at
 zero and scales up when a pod requests `nvidia.com/gpu` with the configured
-accelerator label.
+accelerator label. Runtime `auto` selects `gvisor` for CPU and
+`gvisor-nvproxy` for GPU. Native GPU execution is opt-in with
+`--runtime native` and is only appropriate for trusted compatibility jobs.
 
 ## Quick start
 
@@ -126,10 +131,12 @@ terraform -chdir=terraform validate
 
 ## Project status
 
-Version 0.4.0 is a release candidate. Local lint, typing, tests, Terraform
+Version 0.5.0 is a release candidate. Local lint, typing, tests, Terraform
 validation, and package checks are automated. Maintainers must run the AWS
 acceptance test in a clean or explicitly approved test account before each
-release. This is not a hostile multi-tenant sandbox service.
+release. This is not a complete hostile multi-tenant service: operators must
+add tenant-specific IAM, Kubernetes RBAC, quotas, and account/cluster isolation
+appropriate to their threat model.
 
 ## License
 

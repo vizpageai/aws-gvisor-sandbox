@@ -6,7 +6,7 @@
 4. Configure a PyPI project and GitHub `pypi` environment for PyPI Trusted
    Publishing, scoped to `.github/workflows/release.yml`.
 5. Merge through a protected branch after review.
-6. Create and push a signed tag such as `v0.4.0`.
+6. Create and push a signed tag such as `v0.5.0`.
 
 The release workflow builds and validates the wheel and source archive,
 publishes them to PyPI with OIDC, and attaches them to a GitHub release. Protect

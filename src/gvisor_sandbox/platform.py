@@ -481,8 +481,12 @@ class SandboxPlatform:
     @staticmethod
     def _runtime_class(spec: SandboxSpec) -> str | None:
         if spec.runtime == RuntimeMode.AUTO:
-            return None if spec.gpu is not None else "gvisor"
-        return "gvisor" if spec.runtime == RuntimeMode.GVISOR else None
+            return "gvisor-nvproxy" if spec.gpu is not None else "gvisor"
+        if spec.runtime == RuntimeMode.GVISOR:
+            return "gvisor"
+        if spec.runtime == RuntimeMode.GVISOR_NVPROXY:
+            return "gvisor-nvproxy"
+        return None
 
     def _annotations(self, spec: SandboxSpec) -> dict[str, str]:
         annotations = {SPEC_ANNOTATION: json.dumps(self._spec_payload(spec), separators=(",", ":"))}

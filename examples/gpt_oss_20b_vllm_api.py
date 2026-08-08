@@ -161,7 +161,7 @@ def resources_yaml(args: argparse.Namespace) -> str:
               labels:
                 app: {APP_LABEL}
             spec:
-              runtimeClassName: null
+              runtimeClassName: gvisor-nvproxy
               nodeSelector:
                 {node_selector_key}: "{node_selector_value}"
               containers:
