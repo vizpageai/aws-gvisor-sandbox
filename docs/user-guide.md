@@ -219,6 +219,17 @@ gvisor-sandbox exec gpu-agent -- `
   python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
 ```
 
+Run Meta's Muse Glimmer 30B GGUF on an autoscaled 24 GB GPU:
+
+```powershell
+python examples/muse_glimmer_gpu_job.py
+```
+
+The example downloads Meta's 16.8 GB quantized text model, runs it with a
+pinned CUDA-enabled llama.cpp image, verifies its response, and deletes the
+job. Allow time for node startup, GPU Operator initialization, image pulling,
+and the model download. Set `MUSE_GLIMMER_PROMPT` to test another prompt.
+
 Submit a one-off Python job:
 
 ```powershell
