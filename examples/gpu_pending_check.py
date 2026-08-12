@@ -1,12 +1,12 @@
 from gvisor_sandbox import GPU, GvisorSandbox, SchedulingError
 
-sandbox = GvisorSandbox(runtime_class="gvisor-nvproxy", node_selector={"accelerator": "nvidia-l4"})
+sandbox = GvisorSandbox(runtime_class="gvisor-nvproxy", node_selector={"accelerator": "nvidia-gpu"})
 
 try:
     sandbox.run_python(
         "print('gpu workload')",
         image="python:3.12",
-        gpu=GPU.from_type("nvidia-l4", count=1),
+        gpu=GPU.from_type("nvidia-gpu", count=1),
         timeout_seconds=30,
     )
 except SchedulingError as exc:

@@ -16,7 +16,7 @@ the container the host kernel ABI.
 
 - Kubernetes 1.36 on Canonical Ubuntu 24.04 LTS worker nodes.
 - CPU sandboxes isolated with a pinned, checksum-verified gVisor release.
-- NVIDIA L4 GPU workloads isolated with gVisor nvproxy, GPU Operator, and
+- NVIDIA A10G, T4, or L4 GPU workloads isolated with gVisor nvproxy, GPU Operator, and
   scale-from-zero.
 - Reusable sandboxes, synchronous jobs, and detached jobs from one Python API
   and CLI.
@@ -51,7 +51,7 @@ accelerator label. Runtime `auto` selects `gvisor` for CPU and
 ## Quick start
 
 Prerequisites: AWS CLI v2, Terraform, kubectl, Python 3.10+, an AWS role allowed
-to create EKS/VPC/IAM/EC2 resources, and regional `g6.xlarge` quota.
+to create EKS/VPC/IAM/EC2 resources, and regional G-instance quota.
 
 ```powershell
 aws login
@@ -83,11 +83,11 @@ gvisor-sandbox create my-agent --ebs-size 8
 gvisor-sandbox exec my-agent -- python --version
 ```
 
-Create an autoscaled NVIDIA L4 sandbox:
+Create an autoscaled NVIDIA GPU sandbox:
 
 ```powershell
 gvisor-sandbox create gpu-agent `
-  --gpu-type nvidia-l4 `
+  --gpu-type nvidia-gpu `
   --image pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime `
   --cpu 2 --memory 8Gi --timeout 2400
 

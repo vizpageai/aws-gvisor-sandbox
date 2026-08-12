@@ -161,6 +161,16 @@ resource "aws_autoscaling_group_tag" "gpu_node_template_label" {
   }
 }
 
+resource "aws_autoscaling_group_tag" "gpu_node_template_ephemeral_storage" {
+  count                  = var.enable_cluster_autoscaler && var.enable_gpu_node_group ? 1 : 0
+  autoscaling_group_name = aws_eks_node_group.gpu[0].resources[0].autoscaling_groups[0].name
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/node-template/resources/ephemeral-storage"
+    value               = "70Gi"
+    propagate_at_launch = false
+  }
+}
+
 resource "helm_release" "cluster_autoscaler" {
   count = var.enable_cluster_autoscaler ? 1 : 0
 
@@ -203,16 +213,15 @@ resource "helm_release" "cluster_autoscaler" {
   set {
     name  = "nodeSelector.runtime\\.gvisor\\.dev/enabled"
     value = "true"
+    type  = "string"
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.cluster_autoscaler,
-    aws_autoscaling_group_tag.gvisor_autoscaler_enabled,
-    aws_autoscaling_group_tag.gvisor_autoscaler_cluster,
-    aws_autoscaling_group_tag.gvisor_node_template_label,
     aws_autoscaling_group_tag.gpu_autoscaler_enabled,
     aws_autoscaling_group_tag.gpu_autoscaler_cluster,
     aws_autoscaling_group_tag.gpu_node_template_label,
+    aws_autoscaling_group_tag.gpu_node_template_ephemeral_storage,
   ]
 
   lifecycle {

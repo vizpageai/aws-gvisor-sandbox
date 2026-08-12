@@ -300,7 +300,7 @@ resource "aws_eks_node_group" "gpu" {
   count = var.enable_gpu_node_group ? 1 : 0
 
   cluster_name    = module.eks.cluster_name
-  node_group_name = "${var.name}-gpu"
+  node_group_name = "${var.name}-gpu-nvproxy"
   node_role_arn   = aws_iam_role.gpu_node[0].arn
   subnet_ids      = module.vpc.private_subnets
 
@@ -328,7 +328,8 @@ resource "aws_eks_node_group" "gpu" {
 
   lifecycle {
     # Cluster Autoscaler owns desired_size after the node group is created.
-    ignore_changes = [scaling_config[0].desired_size]
+    create_before_destroy = true
+    ignore_changes        = [scaling_config[0].desired_size]
   }
 
   depends_on = [

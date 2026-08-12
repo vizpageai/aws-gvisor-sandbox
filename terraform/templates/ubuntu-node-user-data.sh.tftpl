@@ -13,18 +13,70 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$${WORKDIR}"
-curl -fsSLO "$${GVISOR_URL}/runsc"
-curl -fsSLO "$${GVISOR_URL}/runsc.sha512"
-curl -fsSLO "$${GVISOR_URL}/containerd-shim-runsc-v1"
-curl -fsSLO "$${GVISOR_URL}/containerd-shim-runsc-v1.sha512"
-sha512sum -c runsc.sha512
-sha512sum -c containerd-shim-runsc-v1.sha512
+curl -fsSLO "$${GVISOR_URL}/gvisor.tar.bz2"
+curl -fsSLO "$${GVISOR_URL}/gvisor.tar.bz2.sha512"
+sha512sum -c gvisor.tar.bz2.sha512
+python3 -m tarfile -e gvisor.tar.bz2 .
 install -o root -g root -m 0755 runsc /usr/local/bin/runsc
 install -o root -g root -m 0755 containerd-shim-runsc-v1 /usr/local/bin/containerd-shim-runsc-v1
+install -o root -g root -d /usr/local/bin/gvisor-bin
+find gvisor-bin -maxdepth 1 -type f -exec install -o root -g root -m 0755 '{}' /usr/local/bin/gvisor-bin/ \;
 
 # Fail node bootstrap when Terraform selects a driver ABI this runsc build does
 # not understand. Unknown driver ABIs must never silently fall back to native.
 /usr/local/bin/runsc nvproxy list-supported-drivers | grep -Fx -- "${gpu_driver_version}"
+
+# GPU Operator installs the driver and NVIDIA Container Toolkit in host-mounted
+# roots. nvproxy discovers the driver through /dev before CDI hooks modify the
+# container spec, and invokes nvidia-container-cli through PATH. Install both
+# pieces of host integration after the Operator DaemonSets appear. Device-node
+# symlinks are unsafe because /dev is mount-propagated into the driver root and
+# would become self-referential.
+cat > /usr/local/sbin/install-nvproxy-host-integration <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+DEVICES=(nvidiactl nvidia0 nvidia-uvm)
+while true; do
+  READY=true
+  for DEVICE in "$${DEVICES[@]}"; do
+    [ -c "/run/nvidia/driver/dev/$${DEVICE}" ] || READY=false
+  done
+  if "$${READY}" && [ -x /usr/local/nvidia/toolkit/nvidia-container-cli ]; then
+    for DEVICE in "$${DEVICES[@]}"; do
+      SOURCE="/run/nvidia/driver/dev/$${DEVICE}"
+      TARGET="/dev/$${DEVICE}"
+      MAJOR_HEX="$(stat -c '%t' "$${SOURCE}")"
+      MINOR_HEX="$(stat -c '%T' "$${SOURCE}")"
+      rm -f "$${TARGET}"
+      mknod -m 0666 "$${TARGET}" c "$((16#$${MAJOR_HEX}))" "$((16#$${MINOR_HEX}))"
+    done
+    cat > /usr/local/bin/nvidia-container-cli <<'CLI_EOF'
+#!/bin/sh
+export LD_LIBRARY_PATH="/run/nvidia/driver/usr/lib/x86_64-linux-gnu$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}"
+exec /usr/local/nvidia/toolkit/nvidia-container-cli "$@"
+CLI_EOF
+    chmod 0755 /usr/local/bin/nvidia-container-cli
+    exit 0
+  fi
+  sleep 5
+done
+EOF
+chmod 0755 /usr/local/sbin/install-nvproxy-host-integration
+
+cat > /etc/systemd/system/nvproxy-host-integration.service <<'EOF'
+[Unit]
+Description=Expose GPU Operator host integration to gVisor nvproxy
+After=containerd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/install-nvproxy-host-integration
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 /etc/eks/bootstrap.sh "${cluster_name}" \
   --apiserver-endpoint "${cluster_endpoint}" \
@@ -53,4 +105,10 @@ EOF
 fi
 
 systemctl restart containerd
-systemctl restart kubelet
+if systemctl list-unit-files --type=service | grep -q '^snap.kubelet-eks.daemon.service'; then
+  systemctl restart snap.kubelet-eks.daemon.service
+else
+  systemctl restart kubelet.service
+fi
+systemctl daemon-reload
+systemctl enable --now --no-block nvproxy-host-integration.service

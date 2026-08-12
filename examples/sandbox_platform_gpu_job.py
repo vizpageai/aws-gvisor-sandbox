@@ -4,7 +4,7 @@ import os
 
 from gvisor_sandbox import GPU, ComputeResources, SandboxPlatform, SandboxSpec
 
-gpu_type = os.getenv("SANDBOX_GPU_TYPE", "nvidia-l4")
+gpu_type = os.getenv("SANDBOX_GPU_TYPE", "nvidia-gpu")
 platform = SandboxPlatform(namespace=os.getenv("SANDBOX_NAMESPACE", "default"))
 spec = SandboxSpec(
     image=os.getenv("SANDBOX_GPU_IMAGE", "pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime"),

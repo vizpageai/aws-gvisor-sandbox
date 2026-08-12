@@ -14,4 +14,4 @@ metadata:
 handler: runsc-nvproxy
 scheduling:
   nodeSelector:
-    accelerator: nvidia-l4
+    accelerator: nvidia-gpu

@@ -47,12 +47,12 @@ class PlatformResourceTests(unittest.TestCase):
         self.assertEqual(job.spec.ttl_seconds_after_finished, 3600)
 
     def test_gpu_auto_runtime_uses_gvisor_nvproxy(self) -> None:
-        spec = SandboxSpec(gpu=GPU.from_type("nvidia-l4"))
+        spec = SandboxSpec(gpu=GPU.from_type("nvidia-gpu"))
         deployment = self.platform._deployment("gpu-agent", spec, replicas=1)
         pod_spec = deployment.spec.template.spec
         resources = pod_spec.containers[0].resources
         self.assertEqual(pod_spec.runtime_class_name, "gvisor-nvproxy")
-        self.assertEqual(pod_spec.node_selector["accelerator"], "nvidia-l4")
+        self.assertEqual(pod_spec.node_selector["accelerator"], "nvidia-gpu")
         self.assertEqual(resources.requests["nvidia.com/gpu"], "1")
         self.assertEqual(resources.limits["nvidia.com/gpu"], "1")
 

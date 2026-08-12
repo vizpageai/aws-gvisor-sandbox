@@ -60,7 +60,7 @@ def _add_cluster_options(parser: argparse.ArgumentParser) -> None:
 def _add_spec_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--image", default="python:3.12-slim")
     parser.add_argument("--runtime", choices=[item.value for item in RuntimeMode], default="auto")
-    parser.add_argument("--gpu-type", help="For example nvidia-l4, nvidia-tesla-t4, or nvidia.com/gpu")
+    parser.add_argument("--gpu-type", help="For example nvidia-gpu, nvidia-l4, nvidia-tesla-t4, or nvidia.com/gpu")
     parser.add_argument("--gpu-count", type=int, default=1)
     parser.add_argument("--node-selector", action="append", metavar="KEY=VALUE")
     parser.add_argument("--cpu", default="500m")

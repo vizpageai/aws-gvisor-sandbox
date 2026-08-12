@@ -54,7 +54,7 @@ Center role or dedicated deployment role. Do not deploy routinely as the AWS
 account root user.
 
 Before enabling GPU verification, confirm that the target region offers
-`g6.xlarge` and that the account has On-Demand G-instance quota. A failed quota
+the configured GPU instance types and that the account has On-Demand G-instance quota. A failed quota
 check normally leaves the GPU pod Pending while Cluster Autoscaler reports the
 EC2 error.
 
@@ -135,7 +135,7 @@ Useful settings:
 | `gvisor_min_size` | `1` | Always-available CPU/system capacity |
 | `gpu_min_size` | `0` | Permits zero idle GPU nodes |
 | `gpu_max_size` | `1` | Maximum automatically provisioned GPU nodes |
-| `gpu_node_instance_types` | `["g6.xlarge"]` | GPU EC2 types |
+| `gpu_node_instance_types` | `["g5.xlarge", "g4dn.xlarge", "g6.xlarge"]` | nvproxy-supported GPU EC2 types, ordered by preference |
 | `gpu_driver_version` | `590.48.01` | Driver ABI pinned to the gVisor release |
 | `enable_cluster_autoscaler` | `true` | Pod-driven node scaling |
 | `enable_sandbox_s3` | `true` | S3 and sandbox IRSA integration |
@@ -198,18 +198,18 @@ gvisor-sandbox delete agent-one --storage
 
 ## Use GPU sandboxes and jobs
 
-Create a reusable NVIDIA L4 sandbox:
+Create a reusable NVIDIA GPU sandbox:
 
 ```powershell
 gvisor-sandbox create gpu-agent `
-  --gpu-type nvidia-l4 `
+  --gpu-type nvidia-gpu `
   --gpu-count 1 `
   --image pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime `
   --cpu 2 --memory 8Gi --timeout 2400
 ```
 
 If the GPU group is at zero, the pod remains Pending while Cluster Autoscaler
-starts a `g6.xlarge`. Initial startup and driver validation can take several
+starts an available A10G, T4, or L4 instance from the configured preference list. Initial startup and driver validation can take several
 minutes. The `--timeout` must be long enough for that process.
 
 Verify CUDA:
@@ -224,7 +224,7 @@ Submit a one-off Python job:
 ```powershell
 gvisor-sandbox job-run train.py `
   --name training-1 `
-  --gpu-type nvidia-l4 `
+  --gpu-type nvidia-gpu `
   --gpu-count 1 `
   --image pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime `
   --timeout 2400
@@ -233,7 +233,7 @@ gvisor-sandbox job-run train.py `
 For a detached job:
 
 ```bash
-gvisor-sandbox job-run train.py --name training-1 --gpu-type nvidia-l4 --detach
+gvisor-sandbox job-run train.py --name training-1 --gpu-type nvidia-gpu --detach
 gvisor-sandbox job-status training-1
 gvisor-sandbox job-logs training-1
 gvisor-sandbox job-wait training-1 --timeout 86400
@@ -306,7 +306,7 @@ result = platform.submit_python(
     name="gpu-check",
     spec=SandboxSpec(
         image="pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime",
-        gpu=GPU.from_type("nvidia-l4"),
+        gpu=GPU.from_type("nvidia-gpu"),
     ),
     timeout_seconds=2400,
 )
@@ -363,7 +363,7 @@ kubectl describe pod POD_NAME
 kubectl logs -n kube-system deployment/cluster-autoscaler --tail=200
 ```
 
-Common causes are G-instance quota, unavailable `g6.xlarge` capacity, an
+Common causes are G-instance quota, unavailable `g6` capacity, an
 accelerator-label mismatch, missing autoscaler ASG tags, or GPU Operator not
 being ready.
 

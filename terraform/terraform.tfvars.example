@@ -14,15 +14,15 @@ gvisor_min_size            = 1
 gvisor_max_size            = 4
 
 gvisor_release_channel = "release"
-gvisor_release_version = "20260427.0"
+gvisor_release_version = "20260803.0"
 enable_smoke_test      = true
 
 enable_gpu_node_group   = true
-gpu_node_instance_types = ["g6.xlarge"]
+gpu_node_instance_types = ["g5.xlarge", "g4dn.xlarge", "g6.xlarge"]
 gpu_desired_size        = 0
 gpu_min_size            = 0
 gpu_max_size            = 1
-gpu_accelerator_label   = "nvidia-l4"
+gpu_accelerator_label   = "nvidia-gpu"
 gpu_operator_chart_version = "v26.3.3"
 gpu_driver_version         = "590.48.01"
 

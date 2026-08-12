@@ -9,7 +9,12 @@ from gvisor_sandbox import GPU, EBSBlockStorage, S3ObjectStorage, SandboxPlatfor
 
 def verify_control_plane(platform: SandboxPlatform, *, gpu_enabled: bool) -> None:
     apps = platform._apps_api()
-    apps.read_namespaced_deployment("cluster-autoscaler", "kube-system")
+    autoscalers = apps.list_namespaced_deployment(
+        "kube-system",
+        label_selector="app.kubernetes.io/instance=cluster-autoscaler",
+    ).items
+    if len(autoscalers) != 1 or not autoscalers[0].status.available_replicas:
+        raise RuntimeError("Cluster Autoscaler deployment is not available")
     if gpu_enabled:
         apps.read_namespaced_deployment("gpu-operator", "gpu-operator")
 
@@ -60,7 +65,7 @@ def verify_gpu(platform: SandboxPlatform, *, suffix: str) -> None:
     name = f"release-gpu-{suffix}"
     spec = SandboxSpec(
         image="pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime",
-        gpu=GPU.from_type("nvidia-l4"),
+        gpu=GPU.from_type("nvidia-gpu"),
     )
     try:
         result = platform.submit_python(

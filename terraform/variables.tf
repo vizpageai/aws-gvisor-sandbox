@@ -90,11 +90,11 @@ variable "gvisor_release_channel" {
 variable "gvisor_release_version" {
   description = "Pinned gVisor release directory. Set to latest only for development environments."
   type        = string
-  default     = "20260427.0"
+  default     = "20260803.0"
 
   validation {
     condition     = can(regex("^(latest|[0-9]{8}\\.[0-9]+)$", var.gvisor_release_version))
-    error_message = "Use latest or a dated gVisor release such as 20260427.0."
+    error_message = "Use latest or a dated gVisor release such as 20260803.0."
   }
 }
 
@@ -111,9 +111,9 @@ variable "enable_gpu_node_group" {
 }
 
 variable "gpu_node_instance_types" {
-  description = "EC2 instance types for the GPU node group. g6 instances provide NVIDIA L4 GPUs."
+  description = "EC2 instance types for the GPU node group. The defaults provide nvproxy-supported A10G, T4, and L4 capacity options."
   type        = list(string)
-  default     = ["g6.xlarge"]
+  default     = ["g5.xlarge", "g4dn.xlarge", "g6.xlarge"]
 }
 
 variable "gpu_desired_size" {
@@ -137,7 +137,7 @@ variable "gpu_max_size" {
 variable "gpu_accelerator_label" {
   description = "Accelerator label applied to GPU nodes."
   type        = string
-  default     = "nvidia-l4"
+  default     = "nvidia-gpu"
 }
 
 variable "gpu_operator_chart_version" {
