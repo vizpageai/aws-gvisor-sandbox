@@ -27,7 +27,7 @@ data "aws_ami" "ubuntu_eks" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+  version = "~> 6.7"
 
   name = var.name
   cidr = var.vpc_cidr
